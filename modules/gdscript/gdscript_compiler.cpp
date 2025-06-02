@@ -2482,7 +2482,7 @@ GDScriptFunction *GDScriptCompiler::_parse_function(Error &r_error, GDScript *p_
 	if (p_func && p_func->is_jit) {
 		auto *jit_compiler = JitCompiler::get_singleton();
 		if (jit_compiler) {
-			void* func_ptr = jit_compiler->compile_function(gd_function->name);
+			void* func_ptr = jit_compiler->compile_function(gd_function);
 
 			if (func_ptr) {
 				gd_function->is_jit = true;

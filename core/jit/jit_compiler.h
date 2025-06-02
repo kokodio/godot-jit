@@ -31,6 +31,7 @@
 #ifndef JIT_COMPILER_H
 #define JIT_COMPILER_H
 
+#include "modules/gdscript/gdscript_function.h"
 #include "core/object/object.h"
 #include "core/os/memory.h"
 
@@ -48,7 +49,7 @@ public:
 	static JitCompiler *get_singleton();
 	asmjit::JitRuntime *get_runtime() { return &runtime; }
 	
-	void *compile_function(const String &assembly_code);
+	void *compile_function(const GDScriptFunction *gdscript);
 	void release_function(void *func_ptr);
 
 	JitCompiler();

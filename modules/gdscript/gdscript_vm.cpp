@@ -33,6 +33,7 @@
 #include "gdscript_lambda_callable.h"
 
 #include "core/os/os.h"
+#include "core/jit/jit_compiler.h"
 
 #ifdef DEBUG_ENABLED
 
@@ -474,9 +475,9 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 	OPCODES_TABLE;
 
 	if (is_jit){
-		typedef int (*JitFunction)();
+		typedef int (*JitFunction)(int);
 		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
-		return jit_func();
+		return jit_func((int)*p_args[0]);
 	}
 
 	if (!_code_ptr) {

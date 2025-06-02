@@ -444,6 +444,7 @@ private:
 	friend class GDScriptCompiler;
 	friend class GDScriptByteCodeGenerator;
 	friend class GDScriptLanguage;
+	friend class JitCompiler;
 
 	StringName name;
 	StringName source;
