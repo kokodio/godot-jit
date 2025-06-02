@@ -453,6 +453,9 @@ private:
 	MethodInfo method_info;
 	Variant rpc_config;
 
+	void *jit_function = nullptr;
+	bool is_jit = false;
+
 	GDScript *_script = nullptr;
 	int _initial_line = 0;
 	int _argument_count = 0;

@@ -35,6 +35,7 @@
 #include "gdscript_cache.h"
 #include "gdscript_utility_functions.h"
 
+#include "core/jit/jit_compiler.h"
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
 
@@ -2476,6 +2477,23 @@ GDScriptFunction *GDScriptCompiler::_parse_function(Error &r_error, GDScript *p_
 
 	if (!is_implicit_initializer && !is_implicit_ready && !p_for_lambda) {
 		p_script->member_functions[func_name] = gd_function;
+	}
+
+	if (p_func && p_func->is_jit) {
+		auto *jit_compiler = JitCompiler::get_singleton();
+		if (jit_compiler) {
+			void* func_ptr = jit_compiler->compile_function(gd_function->name);
+
+			if (func_ptr) {
+				gd_function->is_jit = true;
+				gd_function->jit_function = func_ptr;
+			} else {
+				ERR_PRINT("Failed to compile JIT function: " + func_name);
+				r_error = ERR_COMPILATION_FAILED;
+			}
+		} else {
+			ERR_PRINT("JIT compiler is not available, cannot compile JIT function: " + func_name);
+		}
 	}
 
 	memdelete(codegen.generator);

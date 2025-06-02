@@ -473,6 +473,12 @@ void (*type_init_function_table[])(Variant *) = {
 Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_args, int p_argcount, Callable::CallError &r_err, CallState *p_state) {
 	OPCODES_TABLE;
 
+	if (is_jit){
+		typedef int (*JitFunction)();
+		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
+		return jit_func();
+	}
+
 	if (!_code_ptr) {
 		return _get_default_variant_for_data_type(return_type);
 	}

@@ -265,6 +265,7 @@ opts.Add(
 )
 
 # Thirdparty libraries
+opts.Add(BoolVariable("builtin_asmjit", "Use the built-in AsmJit library", True))
 opts.Add(BoolVariable("builtin_brotli", "Use the built-in Brotli library", True))
 opts.Add(BoolVariable("builtin_certs", "Use the built-in SSL certificates bundles", True))
 opts.Add(BoolVariable("builtin_clipper2", "Use the built-in Clipper2 library", True))

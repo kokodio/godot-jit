@@ -64,6 +64,7 @@
 #include "core/io/translation_loader_po.h"
 #include "core/io/udp_server.h"
 #include "core/io/xml_parser.h"
+#include "core/jit/jit_compiler.h"
 #include "core/math/a_star.h"
 #include "core/math/a_star_grid_2d.h"
 #include "core/math/expression.h"
@@ -110,6 +111,8 @@ static CoreBind::Geometry2D *_geometry_2d = nullptr;
 static CoreBind::Geometry3D *_geometry_3d = nullptr;
 
 static WorkerThreadPool *worker_thread_pool = nullptr;
+
+static JitCompiler *jit_compiler = nullptr;
 
 extern Mutex _global_mutex;
 
@@ -316,6 +319,8 @@ void register_core_types() {
 
 	worker_thread_pool = memnew(WorkerThreadPool);
 
+	jit_compiler = memnew(JitCompiler);
+
 	OS::get_singleton()->benchmark_end_measure("Core", "Register Types");
 }
 
@@ -358,6 +363,7 @@ void register_core_singletons() {
 	GDREGISTER_CLASS(InputMap);
 	GDREGISTER_CLASS(Expression);
 	GDREGISTER_CLASS(CoreBind::EngineDebugger);
+	GDREGISTER_CLASS(JitCompiler);
 
 	Engine::get_singleton()->add_singleton(Engine::Singleton("IP", IP::get_singleton(), "IP"));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("Geometry2D", CoreBind::Geometry2D::get_singleton()));
@@ -373,6 +379,7 @@ void register_core_singletons() {
 	Engine::get_singleton()->add_singleton(Engine::Singleton("GDExtensionManager", GDExtensionManager::get_singleton()));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("ResourceUID", ResourceUID::get_singleton()));
 	Engine::get_singleton()->add_singleton(Engine::Singleton("WorkerThreadPool", worker_thread_pool));
+	Engine::get_singleton()->add_singleton(Engine::Singleton("JitCompiler", JitCompiler::get_singleton()));
 
 	OS::get_singleton()->benchmark_end_measure("Core", "Register Singletons");
 }
@@ -404,6 +411,8 @@ void unregister_core_types() {
 	OS::get_singleton()->benchmark_begin_measure("Core", "Unregister Types");
 
 	// Destroy singletons in reverse order to ensure dependencies are not broken.
+
+	memdelete(jit_compiler);
 
 	memdelete(worker_thread_pool);
 
