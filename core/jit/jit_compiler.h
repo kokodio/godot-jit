@@ -51,7 +51,8 @@ private:
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
 	void load_int(asmjit::x86::Compiler& cc, asmjit::x86::Gp& reg, asmjit::x86::Gp& stack_ptr, const GDScriptFunction *gdscript, int address);
-	void handle_operation(String &operation_name, asmjit::v1_16::x86::Compiler &cc, asmjit::v1_16::x86::Gp &left_val, asmjit::v1_16::x86::Gp &right_val, asmjit::v1_16::x86::Mem &result_mem);
+	void handle_operation(String &operation_name, asmjit::x86::Compiler &cc, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Mem &result_mem);
+	HashMap<int, asmjit::Label> analyze_jump_targets(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc);
 
 
 public:
