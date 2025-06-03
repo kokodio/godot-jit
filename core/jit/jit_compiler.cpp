@@ -207,17 +207,41 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				String operation_name = get_operator_name_from_function(op_func);
 
-				int result_type, result_index;
-				decode_address(result_addr, result_type, result_index);
+				if (operation_name != "UNKNOWN_OPERATION") {
+					int result_type, result_index;
+					decode_address(result_addr, result_type, result_index);
 
-				asmjit::x86::Gp left_val = cc.newInt32();
-				asmjit::x86::Gp right_val = cc.newInt32();
+					asmjit::x86::Gp left_val = cc.newInt32();
+					asmjit::x86::Gp right_val = cc.newInt32();
 
-				load_int(cc, left_val, stack_ptr, gdscript, left_addr);
-				load_int(cc, right_val, stack_ptr, gdscript, right_addr);
-				asmjit::x86::Mem result_mem = asmjit::x86::ptr(stack_ptr, result_index * sizeof(int));
+					load_int(cc, left_val, stack_ptr, gdscript, left_addr);
+					load_int(cc, right_val, stack_ptr, gdscript, right_addr);
+					asmjit::x86::Mem result_mem = asmjit::x86::ptr(stack_ptr, result_index * sizeof(int));
 
-				handle_operation(operation_name, cc, left_val, right_val, result_mem);
+					handle_operation(operation_name, cc, left_val, right_val, result_mem);
+				} 
+				// else {
+				// 	int result_type, result_index;
+				// 	decode_address(result_addr, result_type, result_index);
+
+				// 	asmjit::x86::Gp left_ptr = cc.newIntPtr();
+				// 	asmjit::x86::Gp right_ptr = cc.newIntPtr();
+				// 	asmjit::x86::Gp result_ptr = cc.newIntPtr();
+
+				// 	load_variant_ptr(cc, left_ptr, stack_ptr, gdscript, left_addr);
+				// 	load_variant_ptr(cc, right_ptr, stack_ptr, gdscript, right_addr);
+				// 	load_variant_ptr(cc, result_ptr, stack_ptr, gdscript, result_addr);
+
+				// 	asmjit::InvokeNode* op_invoke;
+				// 	cc.invoke(&op_invoke, op_func, asmjit::FuncSignature::build<void, const Variant*, const Variant*, Variant*>());
+				// 	op_invoke->setArg(0, left_ptr);
+				// 	op_invoke->setArg(1, right_ptr);
+				// 	op_invoke->setArg(2, result_ptr);
+
+				// 	cc.mov(result_mem, result_val);
+				// }
+
+				
 
 				print_line(ip, "OPERATOR_VALIDATED: ", operation_name);
 				print_line("    Function index: ", operation_idx);
@@ -345,10 +369,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					asmjit::x86::Gp return_value = cc.newInt32("return_value");
 					load_int(cc, return_value, stack_ptr, gdscript, return_addr);
 
-					asmjit::InvokeNode *invoke;
-					cc.invoke(&invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
-					invoke->setArg(0, result_ptr);
-					invoke->setArg(1, return_value);
+					asmjit::InvokeNode *ret_invoke;
+					cc.invoke(&ret_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
+					ret_invoke->setArg(0, result_ptr);
+					ret_invoke->setArg(1, return_value);
 				}
 				
 				print_line(ip, "RETURN BUILTIN: ", Variant::get_type_name(gdscript->return_type.builtin_type));
@@ -363,10 +387,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					asmjit::x86::Gp return_value = cc.newInt32("return_value");
 					load_int(cc, return_value, stack_ptr, gdscript, return_addr);
 
-					asmjit::InvokeNode *invoke;
-					cc.invoke(&invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
-					invoke->setArg(0, result_ptr);
-					invoke->setArg(1, return_value);
+					asmjit::InvokeNode *ret_invoke;
+					cc.invoke(&ret_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
+					ret_invoke->setArg(0, result_ptr);
+					ret_invoke->setArg(1, return_value);
 				}
 
 				cc.ret();

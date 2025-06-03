@@ -68,7 +68,6 @@ public:
 
 	void *compile_function(const GDScriptFunction *gdscript);
 	void print_function_info(const GDScriptFunction *gdscript);
-	void NewFunction(const GDScriptFunction *gdscript);
 	void extract_arguments(const GDScriptFunction *gdscript, asmjit::v1_16::x86::Compiler &cc, asmjit::v1_16::x86::Gp &args_ptr, asmjit::v1_16::x86::Gp &stack_ptr);
 	void release_function(void *func_ptr);
 
