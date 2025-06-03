@@ -32,8 +32,8 @@
 #include "gdscript_function.h"
 #include "gdscript_lambda_callable.h"
 
-#include "core/os/os.h"
 #include "core/jit/jit_compiler.h"
+#include "core/os/os.h"
 
 #ifdef DEBUG_ENABLED
 
@@ -474,10 +474,12 @@ void (*type_init_function_table[])(Variant *) = {
 Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_args, int p_argcount, Callable::CallError &r_err, CallState *p_state) {
 	OPCODES_TABLE;
 
-	if (is_jit){
-		typedef int (*JitFunction)(int);
+	if (is_jit) {
+		Variant result;
+		typedef void (*JitFunction)(Variant *result, const Variant **args);
 		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
-		return jit_func((int)*p_args[0]);
+		jit_func(&result, p_args);
+		return result;
 	}
 
 	if (!_code_ptr) {

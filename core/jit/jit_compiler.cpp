@@ -33,6 +33,7 @@
 #include "core/config/engine.h"
 #include "core/string/print_string.h"
 #include "core/variant/variant.h"
+#include "jit_variant_helpers.h"
 
 JitCompiler *JitCompiler::singleton = nullptr;
 HashMap<Variant::ValidatedOperatorEvaluator, String> JitCompiler::op_map;
@@ -104,19 +105,7 @@ void JitCompiler::print_address_info(const GDScriptFunction *gdscript, int encod
 }
 
 void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
-	print_line("=== Compiling GDScript function ===");
-	print_line("Function name: ", gdscript->get_name());
-	print_line("Function return type: ", gdscript->return_type.builtin_type != Variant::NIL ? Variant::get_type_name(gdscript->return_type.builtin_type) : "void");
-
-	print_line("Code size: ", gdscript->code.size());
-	print_line("Stack size: ", gdscript->get_max_stack_size());
-	print_line("Constants count: ", gdscript->constants.size());
-	print_line("Arguments count: ", gdscript->get_argument_count());
-
-	print_line("\n=== Constants ===");
-	for (int i = 0; i < gdscript->constants.size(); i++) {
-		print_line("Constant[", i, "]: ", gdscript->constants[i]);
-	}
+	print_function_info(gdscript);
 
 	asmjit::CodeHolder code;
 	asmjit::StringLogger stringLogger;
@@ -128,26 +117,17 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	HashMap<int, asmjit::Label> jump_labels = analyze_jump_targets(gdscript, cc);
 
 	asmjit::FuncSignature sig;
-	if (gdscript->return_type.builtin_type == Variant::INT) {
-		sig.setRet(asmjit::TypeId::kInt32);
-	} else if (gdscript->return_type.builtin_type == Variant::FLOAT) {
-		sig.setRet(asmjit::TypeId::kFloat32);
-	} else {
-		sig.setRet(asmjit::TypeId::kVoid);
-	}
-	for (int i = 0; i < gdscript->get_argument_count(); i++) {
-		if (gdscript->argument_types[i].builtin_type == Variant::INT) {
-			sig.addArg(asmjit::TypeId::kInt32);
-		} else if (gdscript->argument_types[i].builtin_type == Variant::FLOAT) {
-			sig.addArg(asmjit::TypeId::kFloat32);
-		} else {
-			sig.addArg(asmjit::TypeId::kVoid);
-		}
-	}
+	sig.setRet(asmjit::TypeId::kVoid);
+	sig.addArg(asmjit::TypeId::kIntPtr);
+	sig.addArg(asmjit::TypeId::kIntPtr);
 
 	asmjit::FuncNode *funcNode = cc.addFunc(sig);
-	asmjit::x86::Gp n = cc.newInt32("n");
-	funcNode->setArg(0, n);
+
+	asmjit::x86::Gp result_ptr = cc.newIntPtr("result");
+	asmjit::x86::Gp args_ptr = cc.newIntPtr("args");
+
+	funcNode->setArg(0, result_ptr);
+	funcNode->setArg(1, args_ptr);
 
 	int stack_size = gdscript->get_max_stack_size();
 	int variant_size = sizeof(int);
@@ -159,7 +139,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	asmjit::x86::Gp stack_ptr = cc.newIntPtr("stack");
 	cc.lea(stack_ptr, stack);
 
-	cc.mov(asmjit::x86::ptr(stack_ptr, 3 * variant_size), n);
+	extract_arguments(gdscript, cc, args_ptr, stack_ptr);
 
 	print_line("\n=== Bytecode Analysis ===");
 	int ip = 0;
@@ -361,30 +341,16 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 			case GDScriptFunction::OPCODE_RETURN_TYPED_BUILTIN: {
 				int return_addr = gdscript->_code_ptr[ip + 1];
 
-				int address_type, address_index;
-				decode_address(return_addr, address_type, address_index);
-				Variant return_value;
-
-				if (address_type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
-					return_value = gdscript->constants[address_index];
-				} else if (address_type == GDScriptFunction::ADDR_TYPE_STACK) {
-					int offset = address_index * sizeof(int);
-					asmjit::x86::Mem variant_mem = asmjit::x86::ptr(stack_ptr, offset);
-					cc.mov(asmjit::x86::eax, variant_mem);
-					cc.ret(asmjit::x86::eax);
-					goto end_builtin_return;
-				} else {
-					return_value = Variant();
-				}
-
 				if (gdscript->return_type.builtin_type == Variant::INT) {
-					cc.mov(asmjit::x86::eax, (int)return_value);
-					cc.ret(asmjit::x86::eax);
-				} else {
-					cc.ret();
-				}
+					asmjit::x86::Gp return_value = cc.newInt32("return_value");
+					load_int(cc, return_value, stack_ptr, gdscript, return_addr);
 
-			end_builtin_return:
+					asmjit::InvokeNode *invoke;
+					cc.invoke(&invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
+					invoke->setArg(0, result_ptr);
+					invoke->setArg(1, return_value);
+				}
+				
 				print_line(ip, "RETURN BUILTIN: ", Variant::get_type_name(gdscript->return_type.builtin_type));
 				print_line("    Return value:");
 				print_address_info(gdscript, return_addr);
@@ -393,29 +359,18 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 			case GDScriptFunction::OPCODE_RETURN: {
 				int return_addr = gdscript->_code_ptr[ip + 1];
 
-				int address_type, address_index;
-				decode_address(return_addr, address_type, address_index);
-				Variant return_value;
-
-				if (address_type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
-					return_value = gdscript->constants[address_index];
-				} else if (address_type == GDScriptFunction::ADDR_TYPE_STACK) {
-					int offset = address_index * sizeof(int);
-					asmjit::x86::Mem variant_mem = asmjit::x86::ptr(stack_ptr, offset);
-					cc.mov(asmjit::x86::eax, variant_mem);
-					cc.ret(asmjit::x86::eax);
-					goto end_return;
-				} else {
-					return_value = Variant();
-				}
-
 				if (gdscript->return_type.builtin_type == Variant::INT) {
-					cc.mov(asmjit::x86::eax, (int)return_value);
-					cc.ret(asmjit::x86::eax);
-				} else {
-					cc.ret();
+					asmjit::x86::Gp return_value = cc.newInt32("return_value");
+					load_int(cc, return_value, stack_ptr, gdscript, return_addr);
+
+					asmjit::InvokeNode *invoke;
+					cc.invoke(&invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
+					invoke->setArg(0, result_ptr);
+					invoke->setArg(1, return_value);
 				}
-			end_return:
+
+				cc.ret();
+
 				print_line(ip, "RETURN");
 				print_line("    Return value:");
 				print_address_info(gdscript, return_addr);
@@ -504,6 +459,40 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	}
 
 	return func_ptr;
+}
+
+void JitCompiler::print_function_info(const GDScriptFunction *gdscript) {
+	print_line("=== Compiling GDScript function ===");
+	print_line("Function name: ", gdscript->get_name());
+	print_line("Function return type: ", gdscript->return_type.builtin_type != Variant::NIL ? Variant::get_type_name(gdscript->return_type.builtin_type) : "void");
+
+	print_line("Code size: ", gdscript->code.size());
+	print_line("Stack size: ", gdscript->get_max_stack_size());
+	print_line("Constants count: ", gdscript->constants.size());
+	print_line("Arguments count: ", gdscript->get_argument_count());
+
+	print_line("\n=== Constants ===");
+	for (int i = 0; i < gdscript->constants.size(); i++) {
+		print_line("Constant[", i, "]: ", gdscript->constants[i]);
+	}
+}
+
+void JitCompiler::extract_arguments(const GDScriptFunction *gdscript, asmjit::v1_16::x86::Compiler &cc, asmjit::v1_16::x86::Gp &args_ptr, asmjit::v1_16::x86::Gp &stack_ptr) {
+	for (int i = 0; i < gdscript->get_argument_count(); i++) {
+		if (gdscript->argument_types[i].builtin_type == Variant::INT) {
+			asmjit::x86::Gp variant_ptr = cc.newIntPtr();
+			cc.mov(variant_ptr, asmjit::x86::ptr(args_ptr, i * sizeof(void *)));
+
+			asmjit::x86::Gp arg_value = cc.newInt32();
+
+			asmjit::InvokeNode *invoke;
+			cc.invoke(&invoke, &extract_int_from_variant, asmjit::FuncSignature::build<int32_t, const Variant *>());
+			invoke->setArg(0, variant_ptr);
+			invoke->setRet(0, arg_value);
+
+			cc.mov(asmjit::x86::ptr(stack_ptr, (i + 3) * sizeof(int)), arg_value);
+		}
+	}
 }
 
 void JitCompiler::handle_operation(String &operation_name, asmjit::x86::Compiler &cc, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Mem &result_mem) {

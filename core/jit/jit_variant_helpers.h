@@ -1,5 +1,5 @@
 /**************************************************************************/
-/*  jit_compiler.h                                                        */
+/*  jit_variant_helpers.h                                                */
 /**************************************************************************/
 /*                         This file is part of:                         */
 /*                             GODOT ENGINE                               */
@@ -28,52 +28,14 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef JIT_COMPILER_H
-#define JIT_COMPILER_H
+#ifndef JIT_VARIANT_HELPERS_H
+#define JIT_VARIANT_HELPERS_H
 
-#include "core/object/object.h"
-#include "core/os/memory.h"
-#include "modules/gdscript/gdscript_function.h"
+#include "core/variant/variant.h"
 
-#include <asmjit/core.h>
-#include <asmjit/x86.h>
+extern "C" {
+int32_t extract_int_from_variant(const Variant *variant);
+void encode_int_to_variant(Variant *variant, int32_t value);
+}
 
-struct RangeInfo {
-	asmjit::x86::Gp start_reg;
-	asmjit::x86::Gp end_reg;
-	asmjit::x86::Gp step_reg;
-	int return_addr;
-};
-
-class JitCompiler : public Object {
-	GDCLASS(JitCompiler, Object);
-
-private:
-	static HashMap<Variant::ValidatedOperatorEvaluator, String> op_map;
-	static JitCompiler *singleton;
-	asmjit::JitRuntime runtime;
-
-	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
-	void decode_address(int encoded_address, int &address_type, int &address_index);
-	String get_address_type_name(int address_type);
-	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
-	void load_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, const GDScriptFunction *gdscript, int address);
-	void handle_operation(String &operation_name, asmjit::x86::Compiler &cc, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Mem &result_mem);
-	HashMap<int, asmjit::Label> analyze_jump_targets(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc);
-	RangeInfo handle_range_call(asmjit::x86::Compiler &cc, asmjit::x86::Gp &stack_ptr, const GDScriptFunction *gdscript, int argc, int ip);
-
-public:
-	static JitCompiler *get_singleton();
-	asmjit::JitRuntime *get_runtime() { return &runtime; }
-
-	void *compile_function(const GDScriptFunction *gdscript);
-	void print_function_info(const GDScriptFunction *gdscript);
-	void NewFunction(const GDScriptFunction *gdscript);
-	void extract_arguments(const GDScriptFunction *gdscript, asmjit::v1_16::x86::Compiler &cc, asmjit::v1_16::x86::Gp &args_ptr, asmjit::v1_16::x86::Gp &stack_ptr);
-	void release_function(void *func_ptr);
-
-	JitCompiler();
-	~JitCompiler();
-};
-
-#endif // JIT_COMPILER_H
+#endif // JIT_VARIANT_HELPERS_H
