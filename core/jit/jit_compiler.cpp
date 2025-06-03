@@ -104,6 +104,17 @@ void JitCompiler::print_address_info(const GDScriptFunction *gdscript, int encod
 	}
 }
 
+asmjit::x86::Mem JitCompiler::get_stack_slot(asmjit::x86::Gp &stack_ptr, int slot_index) {
+	int offset = slot_index * STACK_SLOT_SIZE;
+	return asmjit::x86::ptr(stack_ptr, offset);
+}
+
+//template<typename T> ? rn int
+void JitCompiler::set_stack_slot(asmjit::x86::Compiler &cc, asmjit::x86::Gp &stack_ptr, int slot_index, int value) {
+	asmjit::x86::Mem slot = get_stack_slot(stack_ptr, slot_index);
+	cc.mov(slot, value);
+}
+
 void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	print_function_info(gdscript);
 
@@ -130,8 +141,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	funcNode->setArg(1, args_ptr);
 
 	int stack_size = gdscript->get_max_stack_size();
-	int variant_size = sizeof(int);
-	int total_stack_bytes = stack_size * variant_size;
+	int total_stack_bytes = stack_size * STACK_SLOT_SIZE;
 
 	print_line("Allocating stack: ", stack_size, " variants (", total_stack_bytes, " bytes)");
 
@@ -173,7 +183,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				load_int(cc, left_val, stack_ptr, gdscript, left_addr);
 				load_int(cc, right_val, stack_ptr, gdscript, right_addr);
-				asmjit::x86::Mem result_mem = asmjit::x86::ptr(stack_ptr, result_index * sizeof(int));
+				asmjit::x86::Mem result_mem = get_stack_slot(stack_ptr, result_index);
 				cc.xor_(dummy, dummy);
 
 				switch (Variant::Operator(operation)) {
@@ -216,10 +226,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 					load_int(cc, left_val, stack_ptr, gdscript, left_addr);
 					load_int(cc, right_val, stack_ptr, gdscript, right_addr);
-					asmjit::x86::Mem result_mem = asmjit::x86::ptr(stack_ptr, result_index * sizeof(int));
+					asmjit::x86::Mem result_mem = get_stack_slot(stack_ptr, result_index);
 
 					handle_operation(operation_name, cc, left_val, right_val, result_mem);
-				} 
+				}
 				// else {
 				// 	int result_type, result_index;
 				// 	decode_address(result_addr, result_type, result_index);
@@ -240,8 +250,6 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				// 	cc.mov(result_mem, result_val);
 				// }
-
-				
 
 				print_line(ip, "OPERATOR_VALIDATED: ", operation_name);
 				print_line("    Function index: ", operation_idx);
@@ -264,7 +272,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				decode_address(dst_addr, dst_type, dst_index);
 
 				asmjit::x86::Gp value = cc.newInt32();
-				asmjit::x86::Mem variant_mem = asmjit::x86::ptr(stack_ptr, dst_index * sizeof(int));
+				asmjit::x86::Mem variant_mem = get_stack_slot(stack_ptr, dst_index);
 
 				load_int(cc, value, stack_ptr, gdscript, src_addr);
 				cc.mov(variant_mem, value);
@@ -283,8 +291,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				asmjit::x86::Mem variant_mem = asmjit::x86::ptr(stack_ptr, dst_index * sizeof(int));
-				cc.mov(variant_mem, 0);
+				set_stack_slot(cc, stack_ptr, dst_index, 0);
 
 				print_line(ip, "ASSIGN_NULL");
 				print_line("    Destination:");
@@ -298,8 +305,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				asmjit::x86::Mem variant_mem = asmjit::x86::ptr(stack_ptr, dst_index * sizeof(int));
-				cc.mov(variant_mem, 1);
+				set_stack_slot(cc, stack_ptr, dst_index, 1);
 
 				print_line(ip, " ASSIGN_TRUE");
 				incr = 2;
@@ -310,8 +316,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				asmjit::x86::Mem variant_mem = asmjit::x86::ptr(stack_ptr, dst_index * sizeof(int));
-				cc.mov(variant_mem, 0);
+				set_stack_slot(cc, stack_ptr, dst_index, 0);
 
 				print_line(ip, " ASSIGN_FALSE");
 				incr = 2;
@@ -374,7 +379,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					ret_invoke->setArg(0, result_ptr);
 					ret_invoke->setArg(1, return_value);
 				}
-				
+
 				print_line(ip, "RETURN BUILTIN: ", Variant::get_type_name(gdscript->return_type.builtin_type));
 				print_line("    Return value:");
 				print_address_info(gdscript, return_addr);
@@ -501,7 +506,7 @@ void JitCompiler::print_function_info(const GDScriptFunction *gdscript) {
 	}
 }
 
-void JitCompiler::extract_arguments(const GDScriptFunction *gdscript, asmjit::v1_16::x86::Compiler &cc, asmjit::v1_16::x86::Gp &args_ptr, asmjit::v1_16::x86::Gp &stack_ptr) {
+void JitCompiler::extract_arguments(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc, asmjit::x86::Gp &args_ptr, asmjit::x86::Gp &stack_ptr) {
 	for (int i = 0; i < gdscript->get_argument_count(); i++) {
 		if (gdscript->argument_types[i].builtin_type == Variant::INT) {
 			asmjit::x86::Gp variant_ptr = cc.newIntPtr();
@@ -514,7 +519,7 @@ void JitCompiler::extract_arguments(const GDScriptFunction *gdscript, asmjit::v1
 			invoke->setArg(0, variant_ptr);
 			invoke->setRet(0, arg_value);
 
-			cc.mov(asmjit::x86::ptr(stack_ptr, (i + 3) * sizeof(int)), arg_value);
+			cc.mov(get_stack_slot(stack_ptr, i + 3), arg_value);
 		}
 	}
 }

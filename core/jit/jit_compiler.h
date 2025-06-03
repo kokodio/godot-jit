@@ -54,6 +54,8 @@ private:
 	asmjit::JitRuntime runtime;
 
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
+	asmjit::x86::Mem get_stack_slot(asmjit::x86::Gp &stack_ptr, int slot_index);
+	void set_stack_slot(asmjit::x86::Compiler &cc, asmjit::x86::Gp &stack_ptr, int slot_index, int value);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
@@ -63,12 +65,14 @@ private:
 	RangeInfo handle_range_call(asmjit::x86::Compiler &cc, asmjit::x86::Gp &stack_ptr, const GDScriptFunction *gdscript, int argc, int ip);
 
 public:
+	static constexpr size_t STACK_SLOT_SIZE = sizeof(int);
+
 	static JitCompiler *get_singleton();
 	asmjit::JitRuntime *get_runtime() { return &runtime; }
 
 	void *compile_function(const GDScriptFunction *gdscript);
 	void print_function_info(const GDScriptFunction *gdscript);
-	void extract_arguments(const GDScriptFunction *gdscript, asmjit::v1_16::x86::Compiler &cc, asmjit::v1_16::x86::Gp &args_ptr, asmjit::v1_16::x86::Gp &stack_ptr);
+	void extract_arguments(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc, asmjit::x86::Gp &args_ptr, asmjit::x86::Gp &stack_ptr);
 	void release_function(void *func_ptr);
 
 	JitCompiler();
