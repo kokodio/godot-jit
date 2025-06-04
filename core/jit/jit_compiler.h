@@ -39,27 +39,48 @@
 #include <asmjit/core.h>
 #include <asmjit/x86.h>
 
+struct JitContext {
+	const GDScriptFunction *gdscript;
+	asmjit::x86::Gp stack_ptr;
+	asmjit::x86::Gp members_ptr;
+	asmjit::x86::Gp args_ptr;
+	Vector<Variant::Type> stack_types;
+	asmjit::x86::Compiler *cc;
+};
+
+struct OperatorTypes {
+	Variant::Operator op;
+	Variant::Type left_type;
+	Variant::Type right_type;
+};
+
 class JitCompiler : public Object {
 	GDCLASS(JitCompiler, Object);
 
 private:
 	static HashMap<Variant::ValidatedOperatorEvaluator, String> op_map;
+	static HashMap<Variant::ValidatedOperatorEvaluator, OperatorTypes> evaluator_to_types_map;
 	static JitCompiler *singleton;
 	asmjit::JitRuntime runtime;
 
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
 	asmjit::x86::Mem get_stack_slot(asmjit::x86::Gp &stack_ptr, int slot_index);
-	void set_stack_slot(asmjit::x86::Compiler &cc, asmjit::x86::Gp &stack_ptr, int slot_index, int value);
+	void set_stack_slot(JitContext &context, int slot_index, int value);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
-	void load_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, asmjit::x86::Gp &members_ptr, const GDScriptFunction *gdscript, int address);
-	void save_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, asmjit::x86::Gp &members_ptr, const GDScriptFunction *gdscript, int address);
-	void handle_operation(String &operation_name, asmjit::x86::Compiler &cc, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Mem &result_mem);
-	HashMap<int, asmjit::Label> analyze_jump_targets(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc);
+	void load_int(JitContext &context, asmjit::x86::Gp &reg, int address);
+	void save_int(JitContext &context, asmjit::x86::Gp &reg, int address);
+	void load_variant_ptr(JitContext &context, asmjit::x86::Gp &variant_ptr, int address, Variant::Type type);
+	void restore_value(JitContext &context, int address, Variant::Type type);
+	void handle_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, int result_index);
+	HashMap<int, asmjit::Label> analyze_jump_targets(JitContext &context);
+
+	OperatorTypes get_operator_types(Variant::ValidatedOperatorEvaluator op_func);
+	void build_evaluator_to_types_map();
 
 public:
-	static constexpr size_t STACK_SLOT_SIZE = sizeof(int64_t);
+	static constexpr size_t STACK_SLOT_SIZE = sizeof(Variant);
 	static constexpr size_t MEMBER_OFFSET = offsetof(GDScriptInstance, members);
 
 	static constexpr size_t OFFSET_DATA = offsetof(Variant, _data);
@@ -73,7 +94,7 @@ public:
 
 	void *compile_function(const GDScriptFunction *gdscript);
 	void print_function_info(const GDScriptFunction *gdscript);
-	void extract_arguments(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc, asmjit::x86::Gp &args_ptr, asmjit::x86::Gp &stack_ptr);
+	void extract_arguments(JitContext &context);
 	void release_function(void *func_ptr);
 
 	JitCompiler();
