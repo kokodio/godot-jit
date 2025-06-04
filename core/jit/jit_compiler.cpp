@@ -179,9 +179,9 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int result_type, result_index;
 				decode_address(result_addr, result_type, result_index);
 
-				asmjit::x86::Gp left_val = cc.newInt32();
-				asmjit::x86::Gp right_val = cc.newInt32();
-				asmjit::x86::Gp dummy = cc.newInt32();
+				asmjit::x86::Gp left_val = cc.newInt64();
+				asmjit::x86::Gp right_val = cc.newInt64();
+				asmjit::x86::Gp dummy = cc.newInt64();
 
 				load_int(cc, left_val, stack_ptr, members_ptr, gdscript, left_addr);
 				load_int(cc, right_val, stack_ptr, members_ptr, gdscript, right_addr);
@@ -223,8 +223,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					int result_type, result_index;
 					decode_address(result_addr, result_type, result_index);
 
-					asmjit::x86::Gp left_val = cc.newInt32();
-					asmjit::x86::Gp right_val = cc.newInt32();
+					asmjit::x86::Gp left_val = cc.newInt64();
+					asmjit::x86::Gp right_val = cc.newInt64();
 
 					load_int(cc, left_val, stack_ptr, members_ptr, gdscript, left_addr);
 					load_int(cc, right_val, stack_ptr, members_ptr, gdscript, right_addr);
@@ -273,7 +273,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				asmjit::x86::Gp value = cc.newInt32();
+				asmjit::x86::Gp value = cc.newInt64();
 
 				load_int(cc, value, stack_ptr, members_ptr, gdscript, src_addr);
 				save_int(cc, value, stack_ptr, members_ptr, gdscript, dst_addr);
@@ -339,7 +339,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int condition_addr = gdscript->_code_ptr[ip + 1];
 				int target = gdscript->_code_ptr[ip + 2];
 
-				asmjit::x86::Gp condition = cc.newInt32();
+				asmjit::x86::Gp condition = cc.newInt64();
 				load_int(cc, condition, stack_ptr, members_ptr, gdscript, condition_addr);
 
 				cc.test(condition, condition);
@@ -355,7 +355,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int condition_addr = gdscript->_code_ptr[ip + 1];
 				int target = gdscript->_code_ptr[ip + 2];
 
-				asmjit::x86::Gp condition = cc.newInt32();
+				asmjit::x86::Gp condition = cc.newInt64();
 				load_int(cc, condition, stack_ptr, members_ptr, gdscript, condition_addr);
 
 				cc.test(condition, condition);
@@ -372,7 +372,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int return_addr = gdscript->_code_ptr[ip + 1];
 
 				if (gdscript->return_type.builtin_type == Variant::INT) {
-					asmjit::x86::Gp return_value = cc.newInt32("return_value");
+					asmjit::x86::Gp return_value = cc.newInt64("return_value");
 					load_int(cc, return_value, stack_ptr, members_ptr, gdscript, return_addr);
 
 					cc.mov(asmjit::x86::dword_ptr(result_ptr, 0), VARIANT_TYPE_INT);
@@ -388,7 +388,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int return_addr = gdscript->_code_ptr[ip + 1];
 
 				if (gdscript->return_type.builtin_type == Variant::INT) {
-					asmjit::x86::Gp return_value = cc.newInt32("return_value");
+					asmjit::x86::Gp return_value = cc.newInt64("return_value");
 					load_int(cc, return_value, stack_ptr, members_ptr, gdscript, return_addr);
 
 					cc.mov(asmjit::x86::dword_ptr(result_ptr, 0), VARIANT_TYPE_INT);
@@ -509,7 +509,7 @@ void JitCompiler::extract_arguments(const GDScriptFunction *gdscript, asmjit::x8
 			asmjit::x86::Gp variant_ptr = cc.newIntPtr();
 			cc.mov(variant_ptr, asmjit::x86::ptr(args_ptr, i * sizeof(void *)));
 
-			asmjit::x86::Gp arg_value = cc.newInt32();
+			asmjit::x86::Gp arg_value = cc.newInt64();
 			cc.mov(arg_value, asmjit::x86::ptr(variant_ptr, (int)OFFSET_INT));
 			cc.mov(get_stack_slot(stack_ptr, i + 3), arg_value);
 		}
@@ -528,37 +528,37 @@ void JitCompiler::handle_operation(String &operation_name, asmjit::x86::Compiler
 		cc.mov(result_mem, left_val);
 	} else if (operation_name == "EQUAL_INT_INT") {
 		cc.cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = cc.newInt32();
+		asmjit::x86::Gp result_reg = cc.newInt64();
 		cc.sete(result_reg.r8());
 		cc.movzx(result_reg, result_reg.r8());
 		cc.mov(result_mem, result_reg);
 	} else if (operation_name == "LESS_INT_INT") {
 		cc.cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = cc.newInt32();
+		asmjit::x86::Gp result_reg = cc.newInt64();
 		cc.setl(result_reg.r8());
 		cc.movzx(result_reg, result_reg.r8());
 		cc.mov(result_mem, result_reg);
 	} else if (operation_name == "GREATER_INT_INT") {
 		cc.cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = cc.newInt32();
+		asmjit::x86::Gp result_reg = cc.newInt64();
 		cc.setg(result_reg.r8());
 		cc.movzx(result_reg, result_reg.r8());
 		cc.mov(result_mem, result_reg);
 	} else if (operation_name == "LESS_EQUAL_INT_INT") {
 		cc.cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = cc.newInt32();
+		asmjit::x86::Gp result_reg = cc.newInt64();
 		cc.setle(result_reg.r8());
 		cc.movzx(result_reg, result_reg.r8());
 		cc.mov(result_mem, result_reg);
 	} else if (operation_name == "GREATER_EQUAL_INT_INT") {
 		cc.cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = cc.newInt32();
+		asmjit::x86::Gp result_reg = cc.newInt64();
 		cc.setge(result_reg.r8());
 		cc.movzx(result_reg, result_reg.r8());
 		cc.mov(result_mem, result_reg);
 	} else if (operation_name == "NOT_EQUAL_INT_INT") {
 		cc.cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = cc.newInt32();
+		asmjit::x86::Gp result_reg = cc.newInt64();
 		cc.setne(result_reg.r8());
 		cc.movzx(result_reg, result_reg.r8());
 		cc.mov(result_mem, result_reg);

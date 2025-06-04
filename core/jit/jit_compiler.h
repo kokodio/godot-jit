@@ -59,7 +59,7 @@ private:
 	HashMap<int, asmjit::Label> analyze_jump_targets(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc);
 
 public:
-	static constexpr size_t STACK_SLOT_SIZE = sizeof(int);
+	static constexpr size_t STACK_SLOT_SIZE = sizeof(int64_t);
 	static constexpr size_t MEMBER_OFFSET = offsetof(GDScriptInstance, members);
 
 	static constexpr size_t OFFSET_DATA = offsetof(Variant, _data);
