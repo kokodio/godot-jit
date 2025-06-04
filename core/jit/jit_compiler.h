@@ -33,17 +33,11 @@
 
 #include "core/object/object.h"
 #include "core/os/memory.h"
+#include "modules/gdscript/gdscript.h"
 #include "modules/gdscript/gdscript_function.h"
 
 #include <asmjit/core.h>
 #include <asmjit/x86.h>
-
-struct RangeInfo {
-	asmjit::x86::Gp start_reg;
-	asmjit::x86::Gp end_reg;
-	asmjit::x86::Gp step_reg;
-	int return_addr;
-};
 
 class JitCompiler : public Object {
 	GDCLASS(JitCompiler, Object);
@@ -59,13 +53,14 @@ private:
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
-	void load_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, const GDScriptFunction *gdscript, int address);
+	void load_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, asmjit::x86::Gp &members_ptr, const GDScriptFunction *gdscript, int address);
+	void save_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, asmjit::x86::Gp &members_ptr, const GDScriptFunction *gdscript, int address);
 	void handle_operation(String &operation_name, asmjit::x86::Compiler &cc, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Mem &result_mem);
 	HashMap<int, asmjit::Label> analyze_jump_targets(const GDScriptFunction *gdscript, asmjit::x86::Compiler &cc);
-	RangeInfo handle_range_call(asmjit::x86::Compiler &cc, asmjit::x86::Gp &stack_ptr, const GDScriptFunction *gdscript, int argc, int ip);
 
 public:
 	static constexpr size_t STACK_SLOT_SIZE = sizeof(int);
+	static constexpr size_t MEMBER_OFFSET = offsetof(GDScriptInstance, members);
 
 	static JitCompiler *get_singleton();
 	asmjit::JitRuntime *get_runtime() { return &runtime; }

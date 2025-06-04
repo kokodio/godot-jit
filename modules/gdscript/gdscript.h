@@ -365,6 +365,7 @@ class GDScriptInstance : public ScriptInstance {
 	friend class GDScriptLambdaSelfCallable;
 	friend class GDScriptCompiler;
 	friend class GDScriptCache;
+	friend class JitCompiler;
 	friend struct GDScriptUtilityFunctionsDefinitions;
 
 	ObjectID owner_id;

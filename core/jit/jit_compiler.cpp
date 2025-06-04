@@ -131,14 +131,17 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	sig.setRet(asmjit::TypeId::kVoid);
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
+	sig.addArg(asmjit::TypeId::kIntPtr);
 
 	asmjit::FuncNode *funcNode = cc.addFunc(sig);
 
-	asmjit::x86::Gp result_ptr = cc.newIntPtr("result");
-	asmjit::x86::Gp args_ptr = cc.newIntPtr("args");
+	asmjit::x86::Gp result_ptr = cc.newIntPtr("result_ptr");
+	asmjit::x86::Gp args_ptr = cc.newIntPtr("args_ptr");
+	asmjit::x86::Gp members_ptr = cc.newIntPtr("members_ptr");
 
 	funcNode->setArg(0, result_ptr);
 	funcNode->setArg(1, args_ptr);
+	funcNode->setArg(2, members_ptr);
 
 	int stack_size = gdscript->get_max_stack_size();
 	int total_stack_bytes = stack_size * STACK_SLOT_SIZE;
@@ -181,8 +184,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp right_val = cc.newInt32();
 				asmjit::x86::Gp dummy = cc.newInt32();
 
-				load_int(cc, left_val, stack_ptr, gdscript, left_addr);
-				load_int(cc, right_val, stack_ptr, gdscript, right_addr);
+				load_int(cc, left_val, stack_ptr, members_ptr, gdscript, left_addr);
+				load_int(cc, right_val, stack_ptr, members_ptr, gdscript, right_addr);
 				asmjit::x86::Mem result_mem = get_stack_slot(stack_ptr, result_index);
 				cc.xor_(dummy, dummy);
 
@@ -224,8 +227,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					asmjit::x86::Gp left_val = cc.newInt32();
 					asmjit::x86::Gp right_val = cc.newInt32();
 
-					load_int(cc, left_val, stack_ptr, gdscript, left_addr);
-					load_int(cc, right_val, stack_ptr, gdscript, right_addr);
+					load_int(cc, left_val, stack_ptr, members_ptr, gdscript, left_addr);
+					load_int(cc, right_val, stack_ptr, members_ptr, gdscript, right_addr);
 					asmjit::x86::Mem result_mem = get_stack_slot(stack_ptr, result_index);
 
 					handle_operation(operation_name, cc, left_val, right_val, result_mem);
@@ -272,10 +275,9 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				decode_address(dst_addr, dst_type, dst_index);
 
 				asmjit::x86::Gp value = cc.newInt32();
-				asmjit::x86::Mem variant_mem = get_stack_slot(stack_ptr, dst_index);
 
-				load_int(cc, value, stack_ptr, gdscript, src_addr);
-				cc.mov(variant_mem, value);
+				load_int(cc, value, stack_ptr, members_ptr, gdscript, src_addr);
+				save_int(cc, value, stack_ptr, members_ptr, gdscript, dst_addr);
 
 				print_line(ip, "ASSIGN");
 				print_line("    Source:");
@@ -291,7 +293,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				set_stack_slot(cc, stack_ptr, dst_index, 0);
+				set_stack_slot(cc, stack_ptr, dst_index, 0); // must be save_int
 
 				print_line(ip, "ASSIGN_NULL");
 				print_line("    Destination:");
@@ -305,7 +307,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				set_stack_slot(cc, stack_ptr, dst_index, 1);
+				set_stack_slot(cc, stack_ptr, dst_index, 1); // must be save_int
 
 				print_line(ip, " ASSIGN_TRUE");
 				incr = 2;
@@ -316,7 +318,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				set_stack_slot(cc, stack_ptr, dst_index, 0);
+				set_stack_slot(cc, stack_ptr, dst_index, 0); // must be save_int
 
 				print_line(ip, " ASSIGN_FALSE");
 				incr = 2;
@@ -339,7 +341,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int target = gdscript->_code_ptr[ip + 2];
 
 				asmjit::x86::Gp condition = cc.newInt32();
-				load_int(cc, condition, stack_ptr, gdscript, condition_addr);
+				load_int(cc, condition, stack_ptr, members_ptr, gdscript, condition_addr);
 
 				cc.test(condition, condition);
 				cc.jnz(jump_labels[target]);
@@ -355,7 +357,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int target = gdscript->_code_ptr[ip + 2];
 
 				asmjit::x86::Gp condition = cc.newInt32();
-				load_int(cc, condition, stack_ptr, gdscript, condition_addr);
+				load_int(cc, condition, stack_ptr, members_ptr, gdscript, condition_addr);
 
 				cc.test(condition, condition);
 				cc.jz(jump_labels[target]);
@@ -372,7 +374,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				if (gdscript->return_type.builtin_type == Variant::INT) {
 					asmjit::x86::Gp return_value = cc.newInt32("return_value");
-					load_int(cc, return_value, stack_ptr, gdscript, return_addr);
+					load_int(cc, return_value, stack_ptr, members_ptr, gdscript, return_addr);
 
 					asmjit::InvokeNode *ret_invoke;
 					cc.invoke(&ret_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
@@ -390,7 +392,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				if (gdscript->return_type.builtin_type == Variant::INT) {
 					asmjit::x86::Gp return_value = cc.newInt32("return_value");
-					load_int(cc, return_value, stack_ptr, gdscript, return_addr);
+					load_int(cc, return_value, stack_ptr, members_ptr, gdscript, return_addr);
 
 					asmjit::InvokeNode *ret_invoke;
 					cc.invoke(&ret_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
@@ -589,17 +591,44 @@ String JitCompiler::get_operator_name_from_function(Variant::ValidatedOperatorEv
 	return "UNKNOWN_OPERATION";
 }
 
-void JitCompiler::load_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, const GDScriptFunction *gdscript, int address) {
+void JitCompiler::load_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, asmjit::x86::Gp &members_ptr, const GDScriptFunction *gdscript, int address) {
 	int address_type, address_index;
 	decode_address(address, address_type, address_index);
 
 	if (address_type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
 		cc.mov(reg, (int)gdscript->constants[address_index]);
 	} else if (address_type == GDScriptFunction::ADDR_TYPE_STACK) {
-		int offset = address_index * sizeof(int);
-		asmjit::x86::Mem variant_mem = asmjit::x86::ptr(stack_ptr, offset);
-		cc.mov(reg, variant_mem);
+		cc.mov(reg, get_stack_slot(stack_ptr, address_index));
 	} else if (address_type == GDScriptFunction::ADDR_TYPE_MEMBER) {
+		print_line("	Loading member variable at index: ", address_index);
+		int offset = address_index * sizeof(Variant);
+		asmjit::x86::Gp variant_ptr = cc.newIntPtr();
+		cc.lea(variant_ptr, asmjit::x86::ptr(members_ptr, offset));
+
+		asmjit::InvokeNode *invoke_node;
+		cc.invoke(&invoke_node, &extract_int_from_variant, asmjit::FuncSignature::build<int32_t, const Variant *>());
+		invoke_node->setArg(0, variant_ptr);
+		invoke_node->setRet(0, reg);
+	}
+}
+
+void JitCompiler::save_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmjit::x86::Gp &stack_ptr, asmjit::x86::Gp &members_ptr, const GDScriptFunction *gdscript, int address) {
+	int address_type, address_index;
+	decode_address(address, address_type, address_index);
+
+	if (address_type == GDScriptFunction::ADDR_TYPE_STACK) {
+		asmjit::x86::Mem variant_mem = get_stack_slot(stack_ptr, address_index);
+		cc.mov(variant_mem, reg);
+	} else if (address_type == GDScriptFunction::ADDR_TYPE_MEMBER) {
+		print_line("	Save member variable at index: ", address_index);
+		int offset = address_index * sizeof(Variant);
+		asmjit::x86::Gp variant_ptr = cc.newIntPtr();
+		cc.lea(variant_ptr, asmjit::x86::ptr(members_ptr, offset));
+
+		asmjit::InvokeNode *encode_invoke;
+		cc.invoke(&encode_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
+		encode_invoke->setArg(0, variant_ptr);
+		encode_invoke->setArg(1, reg);
 	}
 }
 

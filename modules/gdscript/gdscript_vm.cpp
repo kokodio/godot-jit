@@ -476,9 +476,11 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 
 	if (is_jit) {
 		Variant result;
-		typedef void (*JitFunction)(Variant *result, const Variant **args);
+		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant *members);
 		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
-		jit_func(&result, p_args);
+		Variant *members_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
+
+		jit_func(&result, p_args, members_ptr);
 		return result;
 	}
 
