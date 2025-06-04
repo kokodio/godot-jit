@@ -62,6 +62,12 @@ public:
 	static constexpr size_t STACK_SLOT_SIZE = sizeof(int);
 	static constexpr size_t MEMBER_OFFSET = offsetof(GDScriptInstance, members);
 
+	static constexpr size_t OFFSET_DATA = offsetof(Variant, _data);
+	static constexpr size_t OFFSET_INT_IN_DATA = offsetof(decltype(Variant::_data), _int);
+	static constexpr size_t OFFSET_INT = OFFSET_DATA + OFFSET_INT_IN_DATA;
+
+	static constexpr int VARIANT_TYPE_INT = Variant::INT;
+
 	static JitCompiler *get_singleton();
 	asmjit::JitRuntime *get_runtime() { return &runtime; }
 

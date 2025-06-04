@@ -33,7 +33,6 @@
 #include "core/config/engine.h"
 #include "core/string/print_string.h"
 #include "core/variant/variant.h"
-#include "jit_variant_helpers.h"
 
 JitCompiler *JitCompiler::singleton = nullptr;
 HashMap<Variant::ValidatedOperatorEvaluator, String> JitCompiler::op_map;
@@ -376,10 +375,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					asmjit::x86::Gp return_value = cc.newInt32("return_value");
 					load_int(cc, return_value, stack_ptr, members_ptr, gdscript, return_addr);
 
-					asmjit::InvokeNode *ret_invoke;
-					cc.invoke(&ret_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
-					ret_invoke->setArg(0, result_ptr);
-					ret_invoke->setArg(1, return_value);
+					cc.mov(asmjit::x86::dword_ptr(result_ptr, 0), VARIANT_TYPE_INT);
+					cc.mov(asmjit::x86::qword_ptr(result_ptr, OFFSET_INT), return_value);
 				}
 
 				print_line(ip, "RETURN BUILTIN: ", Variant::get_type_name(gdscript->return_type.builtin_type));
@@ -394,10 +391,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					asmjit::x86::Gp return_value = cc.newInt32("return_value");
 					load_int(cc, return_value, stack_ptr, members_ptr, gdscript, return_addr);
 
-					asmjit::InvokeNode *ret_invoke;
-					cc.invoke(&ret_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
-					ret_invoke->setArg(0, result_ptr);
-					ret_invoke->setArg(1, return_value);
+					cc.mov(asmjit::x86::dword_ptr(result_ptr, 0), VARIANT_TYPE_INT);
+					cc.mov(asmjit::x86::qword_ptr(result_ptr, OFFSET_INT), return_value);
 				}
 
 				cc.ret();
@@ -515,12 +510,7 @@ void JitCompiler::extract_arguments(const GDScriptFunction *gdscript, asmjit::x8
 			cc.mov(variant_ptr, asmjit::x86::ptr(args_ptr, i * sizeof(void *)));
 
 			asmjit::x86::Gp arg_value = cc.newInt32();
-
-			asmjit::InvokeNode *invoke;
-			cc.invoke(&invoke, &extract_int_from_variant, asmjit::FuncSignature::build<int32_t, const Variant *>());
-			invoke->setArg(0, variant_ptr);
-			invoke->setRet(0, arg_value);
-
+			cc.mov(arg_value, asmjit::x86::ptr(variant_ptr, (int)OFFSET_INT));
 			cc.mov(get_stack_slot(stack_ptr, i + 3), arg_value);
 		}
 	}
@@ -600,15 +590,10 @@ void JitCompiler::load_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmj
 	} else if (address_type == GDScriptFunction::ADDR_TYPE_STACK) {
 		cc.mov(reg, get_stack_slot(stack_ptr, address_index));
 	} else if (address_type == GDScriptFunction::ADDR_TYPE_MEMBER) {
-		print_line("	Loading member variable at index: ", address_index);
-		int offset = address_index * sizeof(Variant);
 		asmjit::x86::Gp variant_ptr = cc.newIntPtr();
-		cc.lea(variant_ptr, asmjit::x86::ptr(members_ptr, offset));
-
-		asmjit::InvokeNode *invoke_node;
-		cc.invoke(&invoke_node, &extract_int_from_variant, asmjit::FuncSignature::build<int32_t, const Variant *>());
-		invoke_node->setArg(0, variant_ptr);
-		invoke_node->setRet(0, reg);
+		cc.mov(variant_ptr, members_ptr);
+		cc.add(variant_ptr, (int)(address_index * sizeof(Variant)));
+		cc.mov(reg, asmjit::x86::ptr(variant_ptr, (int)OFFSET_INT));
 	}
 }
 
@@ -620,15 +605,12 @@ void JitCompiler::save_int(asmjit::x86::Compiler &cc, asmjit::x86::Gp &reg, asmj
 		asmjit::x86::Mem variant_mem = get_stack_slot(stack_ptr, address_index);
 		cc.mov(variant_mem, reg);
 	} else if (address_type == GDScriptFunction::ADDR_TYPE_MEMBER) {
-		print_line("	Save member variable at index: ", address_index);
 		int offset = address_index * sizeof(Variant);
 		asmjit::x86::Gp variant_ptr = cc.newIntPtr();
-		cc.lea(variant_ptr, asmjit::x86::ptr(members_ptr, offset));
 
-		asmjit::InvokeNode *encode_invoke;
-		cc.invoke(&encode_invoke, &encode_int_to_variant, asmjit::FuncSignature::build<void, Variant *, int32_t>());
-		encode_invoke->setArg(0, variant_ptr);
-		encode_invoke->setArg(1, reg);
+		cc.lea(variant_ptr, asmjit::x86::ptr(members_ptr, offset));
+		cc.mov(asmjit::x86::dword_ptr(variant_ptr, 0), VARIANT_TYPE_INT);
+		cc.mov(asmjit::x86::qword_ptr(variant_ptr, OFFSET_INT), reg);
 	}
 }
 
