@@ -46,6 +46,7 @@ struct JitContext {
 	asmjit::x86::Gp args_ptr;
 	Vector<Variant::Type> stack_types;
 	asmjit::x86::Compiler *cc;
+	asmjit::x86::Gp result_ptr;
 };
 
 struct OperatorTypes {
@@ -64,20 +65,20 @@ private:
 	asmjit::JitRuntime runtime;
 
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
-	asmjit::x86::Mem get_stack_slot(asmjit::x86::Gp &stack_ptr, int slot_index);
-	void set_stack_slot(JitContext &context, int slot_index, int value);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
-	void load_int(JitContext &context, asmjit::x86::Gp &reg, int address);
-	void save_int(JitContext &context, asmjit::x86::Gp &reg, int address);
-	void load_variant_ptr(JitContext &context, asmjit::x86::Gp &variant_ptr, int address, Variant::Type type);
-	void restore_value(JitContext &context, int address, Variant::Type type);
-	void handle_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, int result_index);
+	void get_variant_ptr(JitContext &context, asmjit::x86::Gp &variant_ptr, int address);
+	void handle_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
 	HashMap<int, asmjit::Label> analyze_jump_targets(JitContext &context);
 
 	OperatorTypes get_operator_types(Variant::ValidatedOperatorEvaluator op_func);
-	void build_evaluator_to_types_map();
+	Variant::Type get_result_type_for_operator(OperatorTypes types);
+	void initialize_with_type(JitContext &context, int address, Variant::Type type);
+	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
+	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
+	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
+	void store_int_to_variant(JitContext &context, int value, int address);
 
 public:
 	static constexpr size_t STACK_SLOT_SIZE = sizeof(Variant);

@@ -481,6 +481,7 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 		Variant *members_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
 
 		jit_func(&result, p_args, members_ptr);
+
 		return result;
 	}
 
