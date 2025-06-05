@@ -68,6 +68,7 @@ private:
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
+	StringName get_utility_function_name(int utility_idx, const GDScriptFunction *gdscript);
 	void get_variant_ptr(JitContext &context, asmjit::x86::Gp &variant_ptr, int address);
 	void handle_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
 	HashMap<int, asmjit::Label> analyze_jump_targets(JitContext &context);
