@@ -81,6 +81,9 @@ private:
 	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void store_int_to_variant(JitContext &context, int value, int address);
 
+	void extract_arguments(JitContext &context);
+	void initialize_stack(JitContext &context, asmjit::x86::Gp base_ptr, asmjit::x86::Gp class_ptr);
+
 public:
 	static constexpr size_t STACK_SLOT_SIZE = sizeof(Variant);
 	static constexpr size_t MEMBER_OFFSET = offsetof(GDScriptInstance, members);
@@ -96,7 +99,6 @@ public:
 
 	void *compile_function(const GDScriptFunction *gdscript);
 	void print_function_info(const GDScriptFunction *gdscript);
-	void extract_arguments(JitContext &context);
 	void release_function(void *func_ptr);
 
 	JitCompiler();

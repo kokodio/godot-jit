@@ -34,6 +34,10 @@
 #include "core/string/print_string.h"
 #include "core/variant/variant.h"
 
+extern "C" void call_variant_method(Variant *base, const StringName *method_name, const Variant **args, int argc, Variant *result, Callable::CallError *error) {
+	base->callp(*method_name, args, argc, *result, *error);
+}
+
 JitCompiler *JitCompiler::singleton = nullptr;
 HashMap<Variant::ValidatedOperatorEvaluator, String> JitCompiler::op_map;
 HashMap<Variant::ValidatedOperatorEvaluator, OperatorTypes> JitCompiler::evaluator_to_types_map;
@@ -91,12 +95,6 @@ void JitCompiler::print_address_info(const GDScriptFunction *gdscript, int encod
 	}
 }
 
-extern "C" {
-void simple_variant_evaluate(Variant::Operator &op, const Variant &a, const Variant &b, Variant &result) {
-	result = Variant::evaluate(op, a, b);
-}
-}
-
 void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	print_function_info(gdscript);
 
@@ -113,16 +111,22 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
+	sig.addArg(asmjit::TypeId::kIntPtr);
+	sig.addArg(asmjit::TypeId::kIntPtr);
 
 	asmjit::FuncNode *funcNode = cc.addFunc(sig);
 
 	asmjit::x86::Gp result_ptr = cc.newIntPtr("result_ptr");
 	asmjit::x86::Gp args_ptr = cc.newIntPtr("args_ptr");
 	asmjit::x86::Gp members_ptr = cc.newIntPtr("members_ptr");
+	asmjit::x86::Gp base_ptr = cc.newIntPtr("base_ptr");
+	asmjit::x86::Gp class_ptr = cc.newIntPtr("stack_ptr");
 
 	funcNode->setArg(0, result_ptr);
 	funcNode->setArg(1, args_ptr);
 	funcNode->setArg(2, members_ptr);
+	funcNode->setArg(3, base_ptr);
+	funcNode->setArg(4, class_ptr);
 
 	int stack_size = gdscript->get_max_stack_size();
 	int total_stack_bytes = stack_size * STACK_SLOT_SIZE;
@@ -148,6 +152,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	context.result_ptr = result_ptr;
 
 	HashMap<int, asmjit::Label> jump_labels = analyze_jump_targets(context);
+	initialize_stack(context, base_ptr, class_ptr);
 	extract_arguments(context);
 
 	print_line("\n=== Bytecode Analysis ===");
@@ -467,6 +472,75 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 3;
 			} break;
 
+			case GDScriptFunction::OPCODE_CALL_RETURN: {
+				int instr_arg_count = gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				int return_addr = gdscript->_code_ptr[ip];
+				int argc = gdscript->_code_ptr[ip + 1];
+				int function_name_idx = gdscript->_code_ptr[ip + 2];
+				int base_addr = gdscript->_code_ptr[ip - 1];
+
+				StringName function_name = gdscript->_global_names_ptr[function_name_idx];
+				print_line(ip - instr_arg_count - 1, "CALL_RETURN: ", function_name, ", argc=", argc, ", instr_arg_count=", instr_arg_count);
+
+				asmjit::x86::Gp base_ptr = cc.newIntPtr();
+				asmjit::x86::Gp result_ptr = cc.newIntPtr();
+
+				get_variant_ptr(context, base_ptr, base_addr);
+				get_variant_ptr(context, result_ptr, return_addr);
+
+				asmjit::x86::Gp args_array = cc.newIntPtr("args_array");
+
+				if (argc > 0) {
+					int args_array_size = argc * sizeof(void *);
+					asmjit::x86::Mem args_stack = cc.newStack(args_array_size, 16);
+					cc.lea(args_array, args_stack);
+
+					for (int i = 0; i < argc; i++) {
+						int arg_addr = gdscript->_code_ptr[ip - instr_arg_count + i + 1];
+
+						asmjit::x86::Gp arg_ptr = cc.newIntPtr();
+						get_variant_ptr(context, arg_ptr, arg_addr);
+
+						cc.mov(asmjit::x86::ptr(args_array, i * sizeof(void *)), arg_ptr);
+
+						print_line("    Arg[", i, "]:");
+						print_address_info(gdscript, arg_addr);
+					}
+				} else {
+					cc.mov(args_array, 0);
+					print_line("    No arguments for call");
+				}
+
+				initialize_with_type(context, return_addr, Variant::NIL);
+
+				asmjit::x86::Mem call_error_mem = cc.newStack(sizeof(Callable::CallError), 16);
+				asmjit::x86::Gp call_error_ptr = cc.newIntPtr("call_error_ptr");
+				cc.lea(call_error_ptr, call_error_mem);
+
+				asmjit::x86::Gp function_name_ptr = cc.newIntPtr("function_name_ptr");
+				cc.mov(function_name_ptr, &gdscript->_global_names_ptr[function_name_idx]);
+
+				asmjit::InvokeNode *call_invoke;
+				cc.invoke(&call_invoke, &call_variant_method,
+						asmjit::FuncSignature::build<void, const Variant *, const StringName *, const Variant **, int, Variant *, Callable::CallError *>());
+
+				call_invoke->setArg(0, base_ptr);
+				call_invoke->setArg(1, function_name_ptr);
+				call_invoke->setArg(2, args_array);
+				call_invoke->setArg(3, argc);
+				call_invoke->setArg(4, result_ptr);
+				call_invoke->setArg(5, call_error_ptr);
+
+				print_line("    Return value:");
+				print_address_info(gdscript, return_addr);
+				print_line("    Base adress:");
+				print_address_info(gdscript, base_addr);
+
+				incr = 3;
+
+			} break;
+
 			case GDScriptFunction::OPCODE_JUMP: {
 				int target = gdscript->_code_ptr[ip + 1];
 
@@ -772,6 +846,20 @@ void JitCompiler::extract_arguments(JitContext &context) {
 	}
 }
 
+void JitCompiler::initialize_stack(JitContext &context, asmjit::x86::Gp base_ptr, asmjit::x86::Gp class_ptr) {
+	const int PTR_SIZE = sizeof(void *);
+	asmjit::x86::Gp dst_addr = context.cc->newIntPtr("dst_addr");
+
+	context.cc->lea(dst_addr, asmjit::x86::ptr(context.stack_ptr, 0 * STACK_SLOT_SIZE));
+	copy_variant(context, dst_addr, base_ptr);
+
+	context.cc->lea(dst_addr, asmjit::x86::ptr(context.stack_ptr, 1 * STACK_SLOT_SIZE));
+	copy_variant(context, dst_addr, class_ptr);
+
+	context.cc->lea(dst_addr, asmjit::x86::ptr(context.stack_ptr, 2 * STACK_SLOT_SIZE));
+	copy_variant(context, dst_addr, context.result_ptr);
+}
+
 void JitCompiler::get_variant_ptr(JitContext &context, asmjit::x86::Gp &variant_ptr, int address) {
 	int address_type, address_index;
 	decode_address(address, address_type, address_index);
@@ -899,6 +987,11 @@ HashMap<int, asmjit::Label> JitCompiler::analyze_jump_targets(JitContext &contex
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CONSTRUCT_VALIDATED: {
+				int instr_arg_count = context.gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				incr = 3;
+			} break;
+			case GDScriptFunction::OPCODE_CALL_RETURN: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				incr = 3;

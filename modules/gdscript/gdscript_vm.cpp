@@ -475,12 +475,23 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 	OPCODES_TABLE;
 
 	if (is_jit) {
-		Variant result;
-		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant *members);
+		Variant STACK_SELF;
+		Variant STACK_CLASS;
+
+		if (p_instance) {
+			STACK_SELF = Variant(p_instance->owner);
+			STACK_CLASS = Variant(p_instance->script.ptr());
+		} else {
+			STACK_SELF = Variant();
+			STACK_CLASS = Variant(_script);
+		}
+
+		Variant result; // Nil
+		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant *members, Variant *self, Variant *klass);
 		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
 		Variant *members_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
 
-		jit_func(&result, p_args, members_ptr);
+		jit_func(&result, p_args, members_ptr, &STACK_SELF, &STACK_CLASS);
 
 		return result;
 	}
