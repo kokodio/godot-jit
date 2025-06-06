@@ -633,10 +633,6 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 
 		GDScriptLanguage::get_singleton()->exit_function();
 
-		for (int i = FIXED_ADDRESSES_MAX; i < _stack_size; i++) {
-			stack[i].~Variant();
-		}
-
 		for (int i = 0; i < FIXED_ADDRESSES_MAX; i++) {
 			stack[i].~Variant();
 		}

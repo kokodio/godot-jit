@@ -172,7 +172,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				asmjit::x86::Gp left_ptr = get_variant_ptr(context, left_addr);
 				asmjit::x86::Gp right_ptr = get_variant_ptr(context, right_addr);
-				asmjit::x86::Gp result_ptr = get_variant_ptr(context, result_addr);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, result_addr);
 
 				asmjit::x86::Mem valid_mem = cc.newStack(sizeof(bool), 16);
 				asmjit::x86::Gp valid_ptr = cc.newIntPtr();
@@ -190,7 +190,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				evaluate_invoke->setArg(0, op_ptr);
 				evaluate_invoke->setArg(1, left_ptr);
 				evaluate_invoke->setArg(2, right_ptr);
-				evaluate_invoke->setArg(3, result_ptr);
+				evaluate_invoke->setArg(3, dst_ptr);
 				evaluate_invoke->setArg(4, valid_ptr);
 
 				print_line(ip, "OPERATOR: ", Variant::get_operator_name(operation));
@@ -334,7 +334,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				asmjit::x86::Gp base_ptr = get_variant_ptr(context, base_addr);
 				asmjit::x86::Gp key_ptr = get_variant_ptr(context, key_addr);
-				asmjit::x86::Gp result_ptr = get_variant_ptr(context, result_addr);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, result_addr);
 
 				asmjit::x86::Mem valid_mem = cc.newStack(sizeof(bool), 16);
 				asmjit::x86::Gp valid_ptr = cc.newIntPtr("valid_ptr");
@@ -345,7 +345,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				cc.invoke(&get_invoke, &get_keyed, asmjit::FuncSignature::build<void, const Variant *, const Variant *, Variant *, bool *>());
 				get_invoke->setArg(0, base_ptr);
 				get_invoke->setArg(1, key_ptr);
-				get_invoke->setArg(2, result_ptr);
+				get_invoke->setArg(2, dst_ptr);
 				get_invoke->setArg(3, valid_ptr);
 
 				print_line("    Base address:");
@@ -368,7 +368,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				print_line(ip, "GET_INDEXED_VALIDATED: getter_idx=", getter_idx);
 
 				asmjit::x86::Gp base_ptr = get_variant_ptr(context, base_addr);
-				asmjit::x86::Gp result_ptr = get_variant_ptr(context, result_addr);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, result_addr);
 
 				asmjit::x86::Gp index_val = cc.newInt64("index_val");
 				extract_int_from_variant(context, index_val, index_addr);
@@ -383,7 +383,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 						asmjit::FuncSignature::build<void, const Variant *, int64_t, Variant *, bool *>());
 				getter_invoke->setArg(0, base_ptr);
 				getter_invoke->setArg(1, index_val);
-				getter_invoke->setArg(2, result_ptr);
+				getter_invoke->setArg(2, dst_ptr);
 				getter_invoke->setArg(3, oob_ptr);
 
 				print_line("    Base address:");
@@ -581,7 +581,6 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp args_array = cc.newIntPtr("args_array");
 				cc.lea(args_array, cc.newStack(PTR_SIZE, 16));
 
-				
 				cc.mov(asmjit::x86::ptr(args_array, 0), arg_ptr);
 
 				asmjit::x86::Gp call_error_ptr = get_call_error_ptr(context);
@@ -756,24 +755,59 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 			case GDScriptFunction::OPCODE_CALL_GDSCRIPT_UTILITY: {
 				int instr_var_args = gdscript->_code_ptr[++ip];
-				int argc = gdscript->_code_ptr[ip + 1 + instr_var_args];
-				int return_addr = gdscript->_code_ptr[ip + 1 + argc];
-				int utility_idx = gdscript->_code_ptr[ip + 3 + instr_var_args];
+				ip += instr_var_args;
+				int return_addr = gdscript->_code_ptr[ip];
+				int argc = gdscript->_code_ptr[ip + 1];
+				int utility_idx = gdscript->_code_ptr[ip + 2];
 
-				print_line(ip, "CALL_GDSCRIPT_UTILITY: utility_index=", utility_idx, ", argc=", argc);
+				GDScriptUtilityFunctions::FunctionPtr utility_func = gdscript->_gds_utilities_ptr[utility_idx];
+				print_line(ip - instr_var_args - 1, "CALL_GDSCRIPT_UTILITY: utility_index=", utility_idx, ", argc=", argc);
 
-				for (int i = 0; i < argc; i++) {
-					int arg_addr = gdscript->_code_ptr[ip + 1 + i];
-					print_line("    Arg[", i, "]:");
-					print_address_info(gdscript, arg_addr);
-				}
+				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - argc);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, return_addr);
+				asmjit::x86::Gp call_error_ptr = create_call_error(context);
+
+				asmjit::InvokeNode *utility_invoke;
+				context.cc->invoke(&utility_invoke, utility_func,
+						asmjit::FuncSignature::build<void, Variant *, const Variant **, int, Callable::CallError &>());
+				utility_invoke->setArg(0, dst_ptr);
+				utility_invoke->setArg(1, args_array);
+				utility_invoke->setArg(2, argc);
+				utility_invoke->setArg(3, call_error_ptr);
 
 				print_line("    Return:");
 				print_address_info(gdscript, return_addr);
 
-				incr = 4 + argc;
+				incr = 3;
 			} break;
+			case GDScriptFunction::OPCODE_CALL_BUILTIN_TYPE_VALIDATED: {
+				int instr_arg_count = gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				int base_addr = gdscript->_code_ptr[ip - 1];
+				int result_addr = gdscript->_code_ptr[ip];
+				int argc = gdscript->_code_ptr[ip + 1];
+				int method_idx = gdscript->_code_ptr[ip + 2];
 
+				Variant::ValidatedBuiltInMethod method_func = gdscript->_builtin_methods_ptr[method_idx];
+				print_line(ip, "CALL_BUILTIN_TYPE_VALIDATED: method_idx=", method_idx, " arg_count=", argc);
+
+				asmjit::x86::Gp base_ptr = get_variant_ptr(context, base_addr);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, result_addr);
+				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - argc);
+
+				asmjit::InvokeNode *call_invoke;
+				cc.invoke(&call_invoke, method_func,
+						asmjit::FuncSignature::build<void, Variant *, const Variant **, int, Variant *>());
+				call_invoke->setArg(0, base_ptr);
+				call_invoke->setArg(1, args_array);
+				call_invoke->setArg(2, argc);
+				call_invoke->setArg(3, dst_ptr);
+
+				print_line("    Result:");
+				print_address_info(gdscript, result_addr);
+
+				incr = 3;
+			} break;
 			case GDScriptFunction::OPCODE_JUMP: {
 				int target = gdscript->_code_ptr[ip + 1];
 
@@ -861,7 +895,20 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int iterator_addr = gdscript->_code_ptr[ip + 3];
 				int jump_target = gdscript->_code_ptr[ip + 4];
 
-				print_line(ip, "ITERATE_BEGIN, jump to: ", jump_target);
+				print_line(ip, "ITERATE_BEGIN_ARRAY, jump to: ", jump_target);
+				asmjit::x86::Gp container_ptr = get_variant_ptr(context, container_addr);
+				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
+
+				asmjit::InvokeNode *init;
+				context.cc->invoke(&init, &VariantInternal::initialize, asmjit::FuncSignature::build<void, Variant *, Variant::Type>());
+				init->setArg(0, counter_ptr);
+				init->setArg(1, (int)Variant::INT);
+
+				asmjit::InvokeNode *empty;
+				context.cc->invoke(&empty, &array->is_empty, asmjit::FuncSignature::build<bool, const Variant *>());
+				empty->setArg(0, container_ptr);
+				asmjit::Label is_empty_label = context.cc->newLabel();
+
 				print_line("    Counter:");
 				print_address_info(gdscript, counter_addr);
 				print_line("    Container:");
@@ -1103,9 +1150,14 @@ HashMap<int, asmjit::Label> JitCompiler::analyze_jump_targets(JitContext &contex
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CALL_GDSCRIPT_UTILITY: {
-				int instr_var_args = context.gdscript->_code_ptr[++ip];
-				int argc = context.gdscript->_code_ptr[ip + 1 + instr_var_args];
-				incr = 4 + argc;
+				int instr_arg_count = context.gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				incr = 3;
+			} break;
+			case GDScriptFunction::OPCODE_CALL_BUILTIN_TYPE_VALIDATED: {
+				int instr_arg_count = context.gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_JUMP: {
 				int target = context.gdscript->_code_ptr[ip + 1];
@@ -1313,7 +1365,6 @@ asmjit::x86::Gp JitCompiler::prepare_args_array(JitContext &context, int argc, i
 		}
 	} else {
 		context.cc->mov(args_array, 0);
-		print_line("    0 arguments ");
 	}
 
 	return args_array;
