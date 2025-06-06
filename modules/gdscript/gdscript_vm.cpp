@@ -474,28 +474,6 @@ void (*type_init_function_table[])(Variant *) = {
 Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_args, int p_argcount, Callable::CallError &r_err, CallState *p_state) {
 	OPCODES_TABLE;
 
-	if (is_jit) {
-		Variant STACK_SELF;
-		Variant STACK_CLASS;
-
-		if (p_instance) {
-			STACK_SELF = Variant(p_instance->owner);
-			STACK_CLASS = Variant(p_instance->script.ptr());
-		} else {
-			STACK_SELF = Variant();
-			STACK_CLASS = Variant(_script);
-		}
-
-		Variant result; // Nil
-		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant *members, Variant *self, Variant *klass);
-		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
-		Variant *members_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
-
-		jit_func(&result, p_args, members_ptr, &STACK_SELF, &STACK_CLASS);
-
-		return result;
-	}
-
 	if (!_code_ptr) {
 		return _get_default_variant_for_data_type(return_type);
 	}
@@ -645,6 +623,28 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 	String err_text;
 
 	GDScriptLanguage::get_singleton()->enter_function(p_instance, this, stack, &ip, &line);
+
+	if (is_jit) {
+		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant *members, Variant *stack);
+		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
+		Variant *members_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
+
+		jit_func(&retvalue, p_args, members_ptr, stack);
+
+		GDScriptLanguage::get_singleton()->exit_function();
+
+		for (int i = FIXED_ADDRESSES_MAX; i < _stack_size; i++) {
+			stack[i].~Variant();
+		}
+
+		for (int i = 0; i < FIXED_ADDRESSES_MAX; i++) {
+			stack[i].~Variant();
+		}
+
+		call_depth--;
+
+		return retvalue;
+	}
 
 #ifdef DEBUG_ENABLED
 #define GD_ERR_BREAK(m_cond)                                                                                           \
