@@ -44,9 +44,9 @@ struct JitContext {
 	asmjit::x86::Gp stack_ptr;
 	asmjit::x86::Gp members_ptr;
 	asmjit::x86::Gp args_ptr;
-	Vector<Variant::Type> stack_types;
 	asmjit::x86::Compiler *cc;
 	asmjit::x86::Gp result_ptr;
+	asmjit::x86::Gp shared_call_error_ptr;
 };
 
 struct OperatorTypes {
@@ -69,7 +69,6 @@ private:
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
 	StringName get_utility_function_name(int utility_idx, const GDScriptFunction *gdscript);
-	void get_variant_ptr(JitContext &context, asmjit::x86::Gp &variant_ptr, int address);
 	void handle_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
 	HashMap<int, asmjit::Label> analyze_jump_targets(JitContext &context);
 
@@ -83,16 +82,19 @@ private:
 	void cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr);
 
 	asmjit::x86::Gp create_call_error(JitContext &context);
+	asmjit::x86::Gp get_call_error_ptr(JitContext &context, bool reset = true);
+	asmjit::x86::Gp prepare_args_array(JitContext &context, int argc, int ip_base);
+	asmjit::x86::Gp get_variant_ptr(JitContext &context, int address);
+
 
 public:
-	static constexpr size_t STACK_SLOT_SIZE = sizeof(Variant);
-	static constexpr size_t MEMBER_OFFSET = offsetof(GDScriptInstance, members);
+	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
 
-	static constexpr size_t OFFSET_DATA = offsetof(Variant, _data);
-	static constexpr size_t OFFSET_INT_IN_DATA = offsetof(decltype(Variant::_data), _int);
-	static constexpr size_t OFFSET_INT = OFFSET_DATA + OFFSET_INT_IN_DATA;
+	static constexpr int OFFSET_DATA = offsetof(Variant, _data);
+	static constexpr int OFFSET_INT_IN_DATA = offsetof(decltype(Variant::_data), _int);
+	static constexpr int OFFSET_INT = OFFSET_DATA + OFFSET_INT_IN_DATA;
 
-	static constexpr int VARIANT_TYPE_INT = Variant::INT;
+	static constexpr int PTR_SIZE = sizeof(void *);
 
 	static JitCompiler *get_singleton();
 	asmjit::JitRuntime *get_runtime() { return &runtime; }
