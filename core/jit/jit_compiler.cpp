@@ -34,8 +34,8 @@
 #include "core/string/print_string.h"
 #include "core/variant/variant.h"
 
-extern "C" void call_variant_method(Variant *base, const StringName *method_name, const Variant **args, int argc, Variant *result, Callable::CallError *error) {
-	base->callp(*method_name, args, argc, *result, *error);
+extern "C" void call_variant_method(Variant &base, const StringName &method_name, const Variant **args, int argc, Variant &result, Callable::CallError &error) {
+	base.callp(method_name, args, argc, result, error);
 }
 
 JitCompiler *JitCompiler::singleton = nullptr;
@@ -273,6 +273,40 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 5;
 			} break;
 
+			case GDScriptFunction::OPCODE_GET_NAMED_VALIDATED: {
+				int base_addr = gdscript->_code_ptr[ip + 1];
+				int result_addr = gdscript->_code_ptr[ip + 2];
+				int name_idx = gdscript->_code_ptr[ip + 3];
+
+				Variant::ValidatedGetter getter_func = gdscript->_getters_ptr[name_idx];
+				print_line(ip, "GET_NAMED_VALIDATED: ", name_idx);
+
+				asmjit::x86::Gp base_ptr = cc.newIntPtr("base_ptr");
+				asmjit::x86::Gp result_ptr = cc.newIntPtr("result_ptr");
+
+				get_variant_ptr(context, base_ptr, base_addr);
+				get_variant_ptr(context, result_ptr, result_addr);
+
+				initialize_with_type(context, result_addr, Variant::NIL);
+				
+				asmjit::x86::Gp base_type = cc.newInt32("base_type");
+				extract_type_from_variant(context, base_type, base_addr);
+				getter_paths(context, base_type, result_ptr);
+
+				asmjit::InvokeNode *getter_invoke;
+				cc.invoke(&getter_invoke, getter_func,
+						asmjit::FuncSignature::build<void, const Variant *, Variant *>());
+				getter_invoke->setArg(0, base_ptr);
+				getter_invoke->setArg(1, result_ptr);
+
+				print_line("    Base address:");
+				print_address_info(gdscript, base_addr);
+				print_line("    Result:");
+				print_address_info(gdscript, result_addr);
+
+				incr = 4;
+			} break;
+
 			case GDScriptFunction::OPCODE_ASSIGN: {
 				int dst_addr = gdscript->_code_ptr[ip + 1];
 				int src_addr = gdscript->_code_ptr[ip + 2];
@@ -403,9 +437,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					print_line("    No arguments for construct call");
 				}
 
-				asmjit::x86::Mem call_error_mem = cc.newStack(sizeof(Callable::CallError), 16);
-				asmjit::x86::Gp call_error_ptr = cc.newIntPtr();
-				cc.lea(call_error_ptr, call_error_mem);
+				asmjit::x86::Gp call_error_ptr = create_call_error(context);
 
 				initialize_with_type(context, result_addr, Variant::NIL); // ?
 
@@ -514,16 +546,14 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				initialize_with_type(context, return_addr, Variant::NIL);
 
-				asmjit::x86::Mem call_error_mem = cc.newStack(sizeof(Callable::CallError), 16);
-				asmjit::x86::Gp call_error_ptr = cc.newIntPtr("call_error_ptr");
-				cc.lea(call_error_ptr, call_error_mem);
+				asmjit::x86::Gp call_error_ptr = create_call_error(context);
 
 				asmjit::x86::Gp function_name_ptr = cc.newIntPtr("function_name_ptr");
 				cc.mov(function_name_ptr, &gdscript->_global_names_ptr[function_name_idx]);
 
 				asmjit::InvokeNode *call_invoke;
 				cc.invoke(&call_invoke, &call_variant_method,
-						asmjit::FuncSignature::build<void, const Variant *, const StringName *, const Variant **, int, Variant *, Callable::CallError *>());
+						asmjit::FuncSignature::build<void, const Variant &, const StringName &, const Variant **, int, Variant &, Callable::CallError &>());
 
 				call_invoke->setArg(0, base_ptr);
 				call_invoke->setArg(1, function_name_ptr);
@@ -594,7 +624,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				get_variant_ptr(context, src_addr, return_addr);
 				cc.mov(dst_addr, result_ptr);
 
-				copy_variant(context, dst_addr, src_addr);
+				cast_and_store(context, src_addr, dst_addr, gdscript->return_type.builtin_type, return_addr);
 				cc.ret();
 
 				print_line(ip, "RETURN BUILTIN: ", Variant::get_type_name(gdscript->return_type.builtin_type));
@@ -697,9 +727,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp function_name_ptr = cc.newIntPtr("function_name_ptr");
 				cc.mov(function_name_ptr, &gdscript->_global_names_ptr[utility_name_idx]);
 
-				asmjit::x86::Mem call_error_mem = cc.newStack(sizeof(Callable::CallError), 16);
-				asmjit::x86::Gp call_error_ptr = cc.newIntPtr();
-				cc.lea(call_error_ptr, call_error_mem);
+				asmjit::x86::Gp call_error_ptr = create_call_error(context);
 
 				asmjit::InvokeNode *utility_invoke;
 				cc.invoke(&utility_invoke, &Variant::call_utility_function, asmjit::FuncSignature::build<void, StringName &, Variant *, const Variant **, int, Callable::CallError &>());
@@ -1168,6 +1196,17 @@ void JitCompiler::extract_int_from_variant(JitContext &context, asmjit::x86::Gp 
 	context.cc->mov(result_reg, asmjit::x86::qword_ptr(variant_ptr, OFFSET_INT));
 }
 
+void JitCompiler::extract_type_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address) {
+	int address_type, address_index;
+	decode_address(address, address_type, address_index);
+
+	asmjit::x86::Gp variant_ptr = context.cc->newIntPtr("variant_ptr");
+	get_variant_ptr(context, variant_ptr, address);
+
+	context.cc->mov(result_reg.r32(), asmjit::x86::dword_ptr(variant_ptr, 0));
+	context.cc->movzx(result_reg, result_reg.r32());
+}
+
 void JitCompiler::store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address) {
 	int address_type, address_index;
 	decode_address(address, address_type, address_index);
@@ -1186,4 +1225,130 @@ void JitCompiler::store_int_to_variant(JitContext &context, int value, int addre
 	get_variant_ptr(context, variant_ptr, address);
 
 	context.cc->mov(asmjit::x86::qword_ptr(variant_ptr, OFFSET_INT), value);
+}
+
+asmjit::x86::Gp JitCompiler::create_call_error(JitContext &context) {
+	asmjit::x86::Mem call_error_mem = context.cc->newStack(sizeof(Callable::CallError), 16);
+	asmjit::x86::Gp call_error_ptr = context.cc->newIntPtr("call_error_ptr");
+	context.cc->lea(call_error_ptr, call_error_mem);
+
+	return call_error_ptr;
+}
+
+void JitCompiler::cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr) {
+	if (expected_type == Variant::NIL) {
+		copy_variant(context, dst_ptr, src_ptr);
+		return;
+	}
+
+	asmjit::x86::Gp current_type = context.cc->newInt32("current_type");
+	extract_type_from_variant(context, current_type, return_addr);
+
+	asmjit::Label same_type_label = context.cc->newLabel();
+	asmjit::Label end_label = context.cc->newLabel();
+
+	context.cc->cmp(current_type, (int)expected_type);
+	context.cc->je(same_type_label);
+
+	{
+		asmjit::x86::Gp args_array = context.cc->newIntPtr("cast_args_array");
+		context.cc->lea(args_array, context.cc->newStack(sizeof(void *), 16));
+		context.cc->mov(asmjit::x86::ptr(args_array, 0), src_ptr);
+
+		context.cc->mov(asmjit::x86::dword_ptr(dst_ptr, 0), (int)expected_type);
+
+		asmjit::x86::Gp call_error_ptr = create_call_error(context);
+
+		asmjit::InvokeNode *construct_invoke;
+		context.cc->invoke(&construct_invoke, &Variant::construct,
+				asmjit::FuncSignature::build<void, Variant::Type, Variant &, const Variant **, int, Callable::CallError &>());
+		construct_invoke->setArg(0, expected_type);
+		construct_invoke->setArg(1, dst_ptr);
+		construct_invoke->setArg(2, args_array);
+		construct_invoke->setArg(3, 1);
+		construct_invoke->setArg(4, call_error_ptr);
+
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(same_type_label);
+	copy_variant(context, dst_ptr, src_ptr);
+
+	context.cc->bind(end_label);
+}
+void JitCompiler::getter_paths(JitContext &context, asmjit::x86::Gp &base_type, asmjit::x86::Gp &result_ptr) {
+	asmjit::Label vector2_path = context.cc->newLabel();
+	asmjit::Label vector2i_path = context.cc->newLabel();
+	asmjit::Label vector3_path = context.cc->newLabel();
+	asmjit::Label vector3i_path = context.cc->newLabel();
+	asmjit::Label color_path = context.cc->newLabel();
+	asmjit::Label string_path = context.cc->newLabel();
+	asmjit::Label array_path = context.cc->newLabel();
+	asmjit::Label generic_path = context.cc->newLabel();
+	asmjit::Label end_label = context.cc->newLabel();
+
+	context.cc->cmp(base_type, (int)Variant::VECTOR2);
+	context.cc->je(vector2_path);
+	context.cc->cmp(base_type, (int)Variant::VECTOR2I);
+	context.cc->je(vector2i_path);
+	context.cc->cmp(base_type, (int)Variant::VECTOR3);
+	context.cc->je(vector3_path);
+	context.cc->cmp(base_type, (int)Variant::VECTOR3I);
+	context.cc->je(vector3i_path);
+	context.cc->cmp(base_type, (int)Variant::COLOR);
+	context.cc->je(color_path);
+	context.cc->cmp(base_type, (int)Variant::STRING);
+	context.cc->je(string_path);
+	context.cc->cmp(base_type, (int)Variant::ARRAY);
+	context.cc->je(array_path);
+	context.cc->jmp(generic_path);
+
+	context.cc->bind(vector2_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::FLOAT);
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(vector2i_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::INT);
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(vector3_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::FLOAT);
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(vector3i_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::INT);
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(color_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::FLOAT);
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(string_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::INT);
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(array_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::INT);
+		context.cc->jmp(end_label);
+	}
+
+	context.cc->bind(generic_path);
+	{
+		context.cc->mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)Variant::NIL);
+	}
+
+	context.cc->bind(end_label);
 }

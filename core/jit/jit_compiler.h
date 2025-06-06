@@ -78,11 +78,15 @@ private:
 	void initialize_with_type(JitContext &context, int address, Variant::Type type);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
 	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
+	void extract_type_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
 	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void store_int_to_variant(JitContext &context, int value, int address);
+	void cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr);
 
 	void extract_arguments(JitContext &context);
 	void initialize_stack(JitContext &context, asmjit::x86::Gp base_ptr, asmjit::x86::Gp class_ptr);
+	asmjit::x86::Gp create_call_error(JitContext &context);
+	void getter_paths(JitContext &context, asmjit::x86::Gp &base_type, asmjit::x86::Gp &result_ptr);
 
 public:
 	static constexpr size_t STACK_SLOT_SIZE = sizeof(Variant);
