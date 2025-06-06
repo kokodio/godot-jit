@@ -64,21 +64,26 @@ private:
 	static JitCompiler *singleton;
 	asmjit::JitRuntime runtime;
 
+	HashMap<int, asmjit::Label> analyze_jump_targets(JitContext &context);
+
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
 	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
 	StringName get_utility_function_name(int utility_idx, const GDScriptFunction *gdscript);
-	void handle_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
-	HashMap<int, asmjit::Label> analyze_jump_targets(JitContext &context);
-
+	void handle_int_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
+	void handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr);
 	OperatorTypes get_operator_types(Variant::ValidatedOperatorEvaluator op_func);
 	Variant::Type get_result_type_for_operator(OperatorTypes types);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
 	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
+	void extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address);
 	void extract_type_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
 	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void store_int_to_variant(JitContext &context, int value, int address);
+	void store_float_to_variant(JitContext &context, asmjit::x86::Xmm &value, int address);
+	void convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Xmm &float_reg);
+
 	void cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr);
 
 	asmjit::x86::Gp create_call_error(JitContext &context);
@@ -86,13 +91,21 @@ private:
 	asmjit::x86::Gp prepare_args_array(JitContext &context, int argc, int ip_base);
 	asmjit::x86::Gp get_variant_ptr(JitContext &context, int address);
 
-
 public:
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
 
 	static constexpr int OFFSET_DATA = offsetof(Variant, _data);
 	static constexpr int OFFSET_INT_IN_DATA = offsetof(decltype(Variant::_data), _int);
 	static constexpr int OFFSET_INT = OFFSET_DATA + OFFSET_INT_IN_DATA;
+
+	static constexpr int OFFSET_FLOAT_IN_DATA = offsetof(decltype(Variant::_data), _float);
+	static constexpr int OFFSET_FLOAT = OFFSET_DATA + OFFSET_FLOAT_IN_DATA;
+
+	static constexpr int OFFSET_BOOL_IN_DATA = offsetof(decltype(Variant::_data), _bool);
+	static constexpr int OFFSET_BOOL = OFFSET_DATA + OFFSET_BOOL_IN_DATA;
+
+	static constexpr int OFFSET_STRING_IN_DATA = offsetof(decltype(Variant::_data), _mem);
+	static constexpr int OFFSET_STRING = OFFSET_DATA + OFFSET_STRING_IN_DATA;
 
 	static constexpr int PTR_SIZE = sizeof(void *);
 

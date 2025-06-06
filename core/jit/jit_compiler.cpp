@@ -68,6 +68,18 @@ JitCompiler::JitCompiler() {
 	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::INT, Variant::INT)] = "GREATER_INT_INT";
 	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::INT)] = "GREATER_EQUAL_INT_INT";
 
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::FLOAT, Variant::FLOAT)] = "ADD_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::FLOAT)] = "SUBTRACT_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::FLOAT)] = "MULTIPLY_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_DIVIDE, Variant::FLOAT, Variant::FLOAT)] = "DIVIDE_FLOAT_FLOAT";
+
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "EQUAL_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "NOT_EQUAL_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::FLOAT, Variant::FLOAT)] = "LESS_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "LESS_EQUAL_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::FLOAT, Variant::FLOAT)] = "GREATER_FLOAT_FLOAT";
+	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "GREATER_EQUAL_FLOAT_FLOAT";
+
 	singleton = this;
 }
 
@@ -215,16 +227,20 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				String operation_name = get_operator_name_from_function(op_func);
 
 				if (operation_name != "UNKNOWN_OPERATION") {
-					asmjit::x86::Gp left_val = cc.newInt64();
-					asmjit::x86::Gp right_val = cc.newInt64();
-					asmjit::x86::Gp result_val = cc.newInt64();
+					if (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT")) {
+						handle_float_operation(operation_name, context, left_addr, right_addr, result_addr);
+					} else {
+						asmjit::x86::Gp left_val = cc.newInt64();
+						asmjit::x86::Gp right_val = cc.newInt64();
+						asmjit::x86::Gp result_val = cc.newInt64();
 
-					extract_int_from_variant(context, left_val, left_addr);
-					extract_int_from_variant(context, right_val, right_addr);
+						extract_int_from_variant(context, left_val, left_addr);
+						extract_int_from_variant(context, right_val, right_addr);
 
-					handle_operation(operation_name, context, left_val, right_val, result_val);
+						handle_int_operation(operation_name, context, left_val, right_val, result_val);
 
-					store_reg_to_variant(context, result_val, result_addr);
+						store_reg_to_variant(context, result_val, result_addr);
+					}
 				} else {
 					auto types = get_operator_types(op_func);
 					Variant::Type ret_type = get_result_type_for_operator(types);
@@ -765,7 +781,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - argc);
 				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, return_addr);
-				asmjit::x86::Gp call_error_ptr = create_call_error(context);
+				asmjit::x86::Gp call_error_ptr = get_call_error_ptr(context);
 
 				asmjit::InvokeNode *utility_invoke;
 				context.cc->invoke(&utility_invoke, utility_func,
@@ -896,18 +912,18 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int jump_target = gdscript->_code_ptr[ip + 4];
 
 				print_line(ip, "ITERATE_BEGIN_ARRAY, jump to: ", jump_target);
-				asmjit::x86::Gp container_ptr = get_variant_ptr(context, container_addr);
-				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
+				// asmjit::x86::Gp container_ptr = get_variant_ptr(context, container_addr);
+				// asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
 
-				asmjit::InvokeNode *init;
-				context.cc->invoke(&init, &VariantInternal::initialize, asmjit::FuncSignature::build<void, Variant *, Variant::Type>());
-				init->setArg(0, counter_ptr);
-				init->setArg(1, (int)Variant::INT);
+				// asmjit::InvokeNode *init;
+				// context.cc->invoke(&init, &VariantInternal::initialize, asmjit::FuncSignature::build<void, Variant *, Variant::Type>());
+				// init->setArg(0, counter_ptr);
+				// init->setArg(1, (int)Variant::INT);
 
-				asmjit::InvokeNode *empty;
-				context.cc->invoke(&empty, &array->is_empty, asmjit::FuncSignature::build<bool, const Variant *>());
-				empty->setArg(0, container_ptr);
-				asmjit::Label is_empty_label = context.cc->newLabel();
+				// asmjit::InvokeNode *empty;
+				// context.cc->invoke(&empty, &array->is_empty, asmjit::FuncSignature::build<bool, const Variant *>());
+				// empty->setArg(0, container_ptr);
+				// asmjit::Label is_empty_label = context.cc->newLabel();
 
 				print_line("    Counter:");
 				print_address_info(gdscript, counter_addr);
@@ -1005,7 +1021,7 @@ asmjit::x86::Gp JitCompiler::get_variant_ptr(JitContext &context, int address) {
 	return variant_ptr;
 }
 
-void JitCompiler::handle_operation(String &operation_name, JitContext &ctx, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem) {
+void JitCompiler::handle_int_operation(String &operation_name, JitContext &ctx, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem) {
 	if (operation_name == "SUBTRACT_INT_INT") {
 		ctx.cc->sub(left_val, right_val);
 		ctx.cc->mov(result_mem, left_val);
@@ -1051,6 +1067,86 @@ void JitCompiler::handle_operation(String &operation_name, JitContext &ctx, asmj
 		ctx.cc->setne(result_reg.r8());
 		ctx.cc->movzx(result_reg, result_reg.r8());
 		ctx.cc->mov(result_mem, result_reg);
+	}
+}
+
+void JitCompiler::handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr) {
+	if (operation_name.begins_with("ADD_FLOAT") || operation_name.begins_with("SUBTRACT_FLOAT") ||
+			operation_name.begins_with("MULTIPLY_FLOAT") || operation_name.begins_with("DIVIDE_FLOAT")) {
+		asmjit::x86::Xmm left_val = ctx.cc->newXmmSd();
+		asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
+
+		if (operation_name.contains("INT_FLOAT")) {
+			asmjit::x86::Gp int_val = ctx.cc->newInt64();
+			extract_int_from_variant(ctx, int_val, left_addr);
+			convert_int_to_float(ctx, int_val, left_val);
+			extract_float_from_variant(ctx, right_val, right_addr);
+		} else if (operation_name.contains("FLOAT_INT")) {
+			extract_float_from_variant(ctx, left_val, left_addr);
+			asmjit::x86::Gp int_val = ctx.cc->newInt64();
+			extract_int_from_variant(ctx, int_val, right_addr);
+			convert_int_to_float(ctx, int_val, right_val);
+		} else {
+			extract_float_from_variant(ctx, left_val, left_addr);
+			extract_float_from_variant(ctx, right_val, right_addr);
+		}
+
+		if (operation_name.begins_with("ADD_")) {
+			ctx.cc->addsd(left_val, right_val);
+		} else if (operation_name.begins_with("SUBTRACT_")) {
+			ctx.cc->subsd(left_val, right_val);
+		} else if (operation_name.begins_with("MULTIPLY_")) {
+			ctx.cc->mulsd(left_val, right_val);
+		} else if (operation_name.begins_with("DIVIDE_")) {
+			ctx.cc->divsd(left_val, right_val);
+		}
+
+		store_float_to_variant(ctx, left_val, result_addr);
+
+	} else if (operation_name.begins_with("EQUAL_FLOAT") || operation_name.begins_with("NOT_EQUAL_FLOAT") ||
+			operation_name.begins_with("LESS_FLOAT") || operation_name.begins_with("GREATER_FLOAT") ||
+			operation_name.contains("EQUAL_") && (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT"))) {
+		asmjit::x86::Xmm left_val = ctx.cc->newXmmSd();
+		asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
+
+		if (operation_name.contains("INT_FLOAT")) {
+			asmjit::x86::Gp int_val = ctx.cc->newInt64();
+			extract_int_from_variant(ctx, int_val, left_addr);
+			convert_int_to_float(ctx, int_val, left_val);
+			extract_float_from_variant(ctx, right_val, right_addr);
+		} else if (operation_name.contains("FLOAT_INT")) {
+			extract_float_from_variant(ctx, left_val, left_addr);
+			asmjit::x86::Gp int_val = ctx.cc->newInt64();
+			extract_int_from_variant(ctx, int_val, right_addr);
+			convert_int_to_float(ctx, int_val, right_val);
+		} else {
+			extract_float_from_variant(ctx, left_val, left_addr);
+			extract_float_from_variant(ctx, right_val, right_addr);
+		}
+
+		ctx.cc->comisd(left_val, right_val);
+
+		asmjit::x86::Gp result_reg = ctx.cc->newInt64();
+
+		if (operation_name.begins_with("EQUAL_")) {
+			ctx.cc->sete(result_reg.r8());
+		} else if (operation_name.begins_with("NOT_EQUAL_")) {
+			ctx.cc->setne(result_reg.r8());
+		} else if (operation_name.begins_with("LESS_EQUAL_")) {
+			ctx.cc->setbe(result_reg.r8());
+		} else if (operation_name.begins_with("LESS_")) {
+			ctx.cc->setb(result_reg.r8());
+		} else if (operation_name.begins_with("GREATER_EQUAL_")) {
+			ctx.cc->setae(result_reg.r8());
+		} else if (operation_name.begins_with("GREATER_")) {
+			ctx.cc->seta(result_reg.r8());
+		}
+
+		ctx.cc->movzx(result_reg, result_reg.r8());
+		store_reg_to_variant(ctx, result_reg, result_addr);
+
+		asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
+		ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
 	}
 }
 
@@ -1311,6 +1407,29 @@ void JitCompiler::extract_type_from_variant(JitContext &context, asmjit::x86::Gp
 
 	context.cc->mov(result_reg.r32(), asmjit::x86::dword_ptr(variant_ptr, 0));
 	context.cc->movzx(result_reg, result_reg.r32());
+}
+
+void JitCompiler::extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address) {
+	int address_type, address_index;
+	decode_address(address, address_type, address_index);
+
+	asmjit::x86::Gp variant_ptr = get_variant_ptr(context, address);
+
+	context.cc->movsd(result_reg, asmjit::x86::qword_ptr(variant_ptr, OFFSET_FLOAT));
+}
+
+void JitCompiler::store_float_to_variant(JitContext &context, asmjit::x86::Xmm &value, int address) {
+	int address_type, address_index;
+	decode_address(address, address_type, address_index);
+
+	asmjit::x86::Gp variant_ptr = get_variant_ptr(context, address);
+
+	context.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::FLOAT);
+	context.cc->movsd(asmjit::x86::qword_ptr(variant_ptr, OFFSET_FLOAT), value);
+}
+
+void JitCompiler::convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Xmm &float_reg) {
+	context.cc->cvtsi2sd(float_reg, int_reg);
 }
 
 void JitCompiler::store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address) {
