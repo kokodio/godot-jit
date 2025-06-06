@@ -64,7 +64,9 @@ bool is_array_empty(const Variant *container) {
 
 void get_array_first_element(const Variant *container, Variant *iterator) {
 	const Array *array = VariantInternal::get_array(container);
-	*iterator = array->get(0);
+	if (!array->is_empty()) {
+		*iterator = array->get(0);
+	}
 }
 
 bool iterate_array_step(Variant *counter, const Variant *container, Variant *iterator) {
@@ -583,7 +585,12 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				//set_stack_slot(context, dst_index, 0); // must be save_int
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
+				asmjit::x86::Gp src_ptr = cc.newIntPtr("null_ptr");
+
+				context.cc->lea(src_ptr, asmjit::x86::ptr(context.stack_ptr, 2 * STACK_SLOT_SIZE));
+
+				copy_variant(context, dst_ptr, src_ptr);
 
 				print_line(ip, "ASSIGN_NULL");
 				print_line("    Destination:");
