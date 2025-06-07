@@ -631,7 +631,13 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 
 		jit_func(&retvalue, p_args, members_ptr, stack);
 
-		GDScriptLanguage::get_singleton()->exit_function();
+		if (!p_state) {
+			GDScriptLanguage::get_singleton()->exit_function();
+
+			for (int i = FIXED_ADDRESSES_MAX; i < _stack_size; i++) {
+				stack[i].~Variant();
+			}
+		}
 
 		for (int i = 0; i < FIXED_ADDRESSES_MAX; i++) {
 			stack[i].~Variant();
