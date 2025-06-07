@@ -28,8 +28,7 @@
 /* SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.                 */
 /**************************************************************************/
 
-#ifndef JIT_COMPILER_H
-#define JIT_COMPILER_H
+#pragma once
 
 #include "core/object/object.h"
 #include "core/os/memory.h"
@@ -44,15 +43,9 @@ struct JitContext {
 	asmjit::x86::Gp stack_ptr;
 	asmjit::x86::Gp members_ptr;
 	asmjit::x86::Gp args_ptr;
-	asmjit::x86::Compiler *cc;
 	asmjit::x86::Gp result_ptr;
 	asmjit::x86::Gp shared_call_error_ptr;
-};
-
-struct OperatorTypes {
-	Variant::Operator op;
-	Variant::Type left_type;
-	Variant::Type right_type;
+	asmjit::x86::Compiler *cc;
 };
 
 class JitCompiler : public Object {
@@ -60,7 +53,6 @@ class JitCompiler : public Object {
 
 private:
 	static HashMap<Variant::ValidatedOperatorEvaluator, String> op_map;
-	static HashMap<Variant::ValidatedOperatorEvaluator, OperatorTypes> evaluator_to_types_map;
 	static JitCompiler *singleton;
 	asmjit::JitRuntime runtime;
 
@@ -73,7 +65,7 @@ private:
 	void handle_int_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
 	void handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
-	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
+	asmjit::x86::Gp extract_int_from_variant(JitContext &context, int address);
 	void extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address);
 	void extract_type_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
 	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
@@ -113,5 +105,3 @@ public:
 	JitCompiler();
 	~JitCompiler();
 };
-
-#endif // JIT_COMPILER_H
