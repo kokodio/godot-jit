@@ -272,9 +272,6 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 						store_reg_to_variant(context, result_val, result_addr);
 					}
 				} else {
-					auto types = get_operator_types(op_func);
-					Variant::Type ret_type = get_result_type_for_operator(types);
-
 					asmjit::x86::Gp left_ptr = get_variant_ptr(context, left_addr);
 					asmjit::x86::Gp right_ptr = get_variant_ptr(context, right_addr);
 					asmjit::x86::Gp op_ptr = get_variant_ptr(context, result_addr);
@@ -588,7 +585,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
 				asmjit::x86::Gp src_ptr = cc.newIntPtr("null_ptr");
 
-				context.cc->lea(src_ptr, asmjit::x86::ptr(context.stack_ptr, 2 * STACK_SLOT_SIZE));
+				context.cc->lea(src_ptr, asmjit::x86::ptr(context.stack_ptr, 2 * STACK_SLOT_SIZE)); // STACK[2] - Nil
 
 				copy_variant(context, dst_ptr, src_ptr);
 
@@ -1154,6 +1151,7 @@ void JitCompiler::handle_int_operation(String &operation_name, JitContext &ctx, 
 	}
 }
 
+//FIX ME
 void JitCompiler::handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr) {
 	if (operation_name.begins_with("ADD_FLOAT") || operation_name.begins_with("SUBTRACT_FLOAT") ||
 			operation_name.begins_with("MULTIPLY_FLOAT") || operation_name.begins_with("DIVIDE_FLOAT")) {
@@ -1248,10 +1246,6 @@ String JitCompiler::get_operator_name_from_function(Variant::ValidatedOperatorEv
 	}
 
 	return "UNKNOWN_OPERATION";
-}
-
-StringName JitCompiler::get_utility_function_name(int utility_idx, const GDScriptFunction *gdscript) {
-	return "utility_" + String::num(utility_idx);
 }
 
 HashMap<int, asmjit::Label> JitCompiler::analyze_jump_targets(JitContext &context) {
@@ -1402,76 +1396,15 @@ HashMap<int, asmjit::Label> JitCompiler::analyze_jump_targets(JitContext &contex
 	return jump_labels;
 }
 
-OperatorTypes JitCompiler::get_operator_types(Variant::ValidatedOperatorEvaluator op_func) {
-	if (evaluator_to_types_map.is_empty()) {
-		for (int op = 0; op < Variant::OP_MAX; op++) {
-			for (int type_a = 0; type_a < Variant::VARIANT_MAX; type_a++) {
-				for (int type_b = 0; type_b < Variant::VARIANT_MAX; type_b++) {
-					Variant::ValidatedOperatorEvaluator evaluator =
-							Variant::get_validated_operator_evaluator(
-									(Variant::Operator)op,
-									(Variant::Type)type_a,
-									(Variant::Type)type_b);
-
-					if (evaluator != nullptr) {
-						OperatorTypes types;
-						types.op = (Variant::Operator)op;
-						types.left_type = (Variant::Type)type_a;
-						types.right_type = (Variant::Type)type_b;
-						evaluator_to_types_map[evaluator] = types;
-					}
-				}
-			}
-		}
-	}
-
-	if (evaluator_to_types_map.has(op_func)) {
-		return evaluator_to_types_map[op_func];
-	}
-
-	OperatorTypes unknown;
-	unknown.op = Variant::OP_MAX;
-	unknown.left_type = Variant::NIL;
-	unknown.right_type = Variant::NIL;
-
-	return unknown;
-}
-
-Variant::Type JitCompiler::get_result_type_for_operator(OperatorTypes types) {
-	if (types.op >= Variant::OP_EQUAL && types.op <= Variant::OP_GREATER_EQUAL) {
-		return Variant::BOOL;
-	}
-
-	if (types.op == Variant::OP_AND || types.op == Variant::OP_OR || types.op == Variant::OP_NOT) {
-		return Variant::BOOL;
-	}
-
-	if (types.op >= Variant::OP_ADD && types.op <= Variant::OP_MODULE) {
-		if (types.left_type == Variant::INT && types.right_type == Variant::INT) {
-			return Variant::INT;
-		}
-		if (types.left_type == Variant::FLOAT || types.right_type == Variant::FLOAT) {
-			return Variant::FLOAT;
-		}
-		return types.left_type;
-	}
-
-	if (types.op >= Variant::OP_BIT_AND && types.op <= Variant::OP_SHIFT_RIGHT) {
-		return Variant::INT;
-	}
-
-	return Variant::NIL;
-}
-
 void JitCompiler::copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr) {
-	asmjit::x86::Gp temp_reg64 = context.cc->newGpq("temp_reg64");
-
-	context.cc->mov(temp_reg64, asmjit::x86::ptr(src_ptr, 0));
-	context.cc->mov(asmjit::x86::ptr(dst_ptr, 0), temp_reg64);
-	context.cc->mov(temp_reg64, asmjit::x86::ptr(src_ptr, 8));
-	context.cc->mov(asmjit::x86::ptr(dst_ptr, 8), temp_reg64);
-	context.cc->mov(temp_reg64, asmjit::x86::ptr(src_ptr, 16));
-	context.cc->mov(asmjit::x86::ptr(dst_ptr, 16), temp_reg64);
+	asmjit::InvokeNode *copy_invoke;
+	context.cc->invoke(&copy_invoke,
+			static_cast<void (*)(Variant *, const Variant *)>([](Variant *dst, const Variant *src) {
+				*dst = *src;
+			}),
+			asmjit::FuncSignature::build<void, Variant *, const Variant *>());
+	copy_invoke->setArg(0, dst_ptr);
+	copy_invoke->setArg(1, src_ptr);
 }
 
 void JitCompiler::extract_int_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address) {
