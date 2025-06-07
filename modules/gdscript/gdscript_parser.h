@@ -339,7 +339,6 @@ public:
 		Type type = NONE;
 		int start_line = 0, end_line = 0;
 		int start_column = 0, end_column = 0;
-		int leftmost_column = 0, rightmost_column = 0;
 		Node *next = nullptr;
 		List<AnnotationNode *> annotations;
 
@@ -536,8 +535,8 @@ public:
 			bool resolved = false;
 			int64_t value = 0;
 			int line = 0;
-			int leftmost_column = 0;
-			int rightmost_column = 0;
+			int start_column = 0;
+			int end_column = 0;
 #ifdef TOOLS_ENABLED
 			MemberDocData doc_data;
 #endif // TOOLS_ENABLED
@@ -1106,7 +1105,6 @@ public:
 
 			int start_line = 0, end_line = 0;
 			int start_column = 0, end_column = 0;
-			int leftmost_column = 0, rightmost_column = 0;
 
 			DataType get_datatype() const;
 			String get_name() const;
@@ -1122,8 +1120,6 @@ public:
 				end_line = p_constant->end_line;
 				start_column = p_constant->start_column;
 				end_column = p_constant->end_column;
-				leftmost_column = p_constant->leftmost_column;
-				rightmost_column = p_constant->rightmost_column;
 			}
 			Local(VariableNode *p_variable, FunctionNode *p_source_function) {
 				type = VARIABLE;
@@ -1135,8 +1131,6 @@ public:
 				end_line = p_variable->end_line;
 				start_column = p_variable->start_column;
 				end_column = p_variable->end_column;
-				leftmost_column = p_variable->leftmost_column;
-				rightmost_column = p_variable->rightmost_column;
 			}
 			Local(ParameterNode *p_parameter, FunctionNode *p_source_function) {
 				type = PARAMETER;
@@ -1148,8 +1142,6 @@ public:
 				end_line = p_parameter->end_line;
 				start_column = p_parameter->start_column;
 				end_column = p_parameter->end_column;
-				leftmost_column = p_parameter->leftmost_column;
-				rightmost_column = p_parameter->rightmost_column;
 			}
 			Local(IdentifierNode *p_identifier, FunctionNode *p_source_function) {
 				type = FOR_VARIABLE;
@@ -1161,8 +1153,6 @@ public:
 				end_line = p_identifier->end_line;
 				start_column = p_identifier->start_column;
 				end_column = p_identifier->end_column;
-				leftmost_column = p_identifier->leftmost_column;
-				rightmost_column = p_identifier->rightmost_column;
 			}
 		};
 		Local empty;
