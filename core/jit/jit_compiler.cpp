@@ -693,6 +693,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 3;
 			} break;
 
+			case GDScriptFunction::OPCODE_CALL:
 			case GDScriptFunction::OPCODE_CALL_RETURN: {
 				int instr_arg_count = gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
@@ -1326,6 +1327,7 @@ HashMap<int, asmjit::Label> JitCompiler::analyze_jump_targets(JitContext &contex
 				ip += instr_arg_count;
 				incr = 3;
 			} break;
+			case GDScriptFunction::OPCODE_CALL:
 			case GDScriptFunction::OPCODE_CALL_RETURN: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
