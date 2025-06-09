@@ -624,7 +624,7 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 
 	GDScriptLanguage::get_singleton()->enter_function(p_instance, this, stack, &ip, &line);
 
-	if (is_jit) {
+	if (is_jit && jit_function) {
 		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant *members, Variant *stack);
 		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
 		Variant *members_ptr = p_instance ? p_instance->members.ptrw() : nullptr;

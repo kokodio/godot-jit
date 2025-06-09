@@ -44,8 +44,17 @@ struct JitContext {
 	asmjit::x86::Gp members_ptr;
 	asmjit::x86::Gp args_ptr;
 	asmjit::x86::Gp result_ptr;
-	asmjit::x86::Gp shared_call_error_ptr;
+	asmjit::x86::Gp call_error_ptr;
+	asmjit::x86::Gp bool_ptr;
+	asmjit::x86::Gp operator_ptr;
 	asmjit::x86::Compiler *cc;
+};
+
+struct FunctionAnalysis {
+	bool uses_bool = false;
+	bool uses_error = false;
+	bool uses_operator = false;
+	HashMap<int, asmjit::Label> jump_labels;
 };
 
 class JitCompiler : public Object {
@@ -56,7 +65,8 @@ private:
 	static JitCompiler *singleton;
 	asmjit::JitRuntime runtime;
 
-	HashMap<int, asmjit::Label> analyze_jump_targets(JitContext &context);
+	FunctionAnalysis analyze_function(JitContext &context);
+	void initialize_context(JitContext &context, const FunctionAnalysis &analysis);
 
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
@@ -75,8 +85,8 @@ private:
 
 	void cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr);
 
-	asmjit::x86::Gp create_call_error(JitContext &context);
 	asmjit::x86::Gp get_call_error_ptr(JitContext &context, bool reset = true);
+	asmjit::x86::Gp get_bool_ptr(JitContext &context, bool value);
 	asmjit::x86::Gp prepare_args_array(JitContext &context, int argc, int ip_base);
 	asmjit::x86::Gp get_variant_ptr(JitContext &context, int address);
 
