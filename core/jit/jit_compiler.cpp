@@ -57,18 +57,6 @@ void initialize_counter_int(Variant *counter) {
 	*VariantInternal::get_int(counter) = 0;
 }
 
-bool is_array_empty(const Variant *container) {
-	const Array *array = VariantInternal::get_array(container);
-	return array->is_empty();
-}
-
-void get_array_first_element(const Variant *container, Variant *iterator) {
-	const Array *array = VariantInternal::get_array(container);
-	if (!array->is_empty()) {
-		*iterator = array->get(0);
-	}
-}
-
 bool iterate_array_step(Variant *counter, const Variant *container, Variant *iterator) {
 	const Array *array = VariantInternal::get_array(container);
 	int64_t *idx = VariantInternal::get_int(counter);
@@ -1007,30 +995,48 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
 				asmjit::x86::Gp iterator_ptr = get_variant_ptr(context, iterator_addr);
 
-				asmjit::InvokeNode *init_counter;
-				cc.invoke(&init_counter, &initialize_counter_int,
-						asmjit::FuncSignature::build<void, Variant *>());
-				init_counter->setArg(0, counter_ptr);
+				cc.mov(asmjit::x86::dword_ptr(counter_ptr, 0), (int)Variant::INT);
+				cc.mov(asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT), 0);
 
-				asmjit::InvokeNode *is_empty_call;
-				cc.invoke(&is_empty_call, &is_array_empty,
-						asmjit::FuncSignature::build<bool, const Variant *>());
-				is_empty_call->setArg(0, container_ptr);
+				asmjit::x86::Gp array_ptr = cc.newIntPtr("array_ptr");
+				asmjit::InvokeNode *get_array_invoke;
+				cc.invoke(&get_array_invoke,
+						static_cast<const Array *(*)(const Variant *)>([](const Variant *v) -> const Array * {
+							return VariantInternal::get_array(v);
+						}),
+						asmjit::FuncSignature::build<const Array *, const Variant *>());
+				get_array_invoke->setArg(0, container_ptr);
+				get_array_invoke->setRet(0, array_ptr);
 
-				asmjit::x86::Gp is_empty_result = cc.newInt8("is_empty_result");
-				is_empty_call->setRet(0, is_empty_result);
+				asmjit::x86::Gp array_size = cc.newInt32("array_size");
+				asmjit::InvokeNode *size_invoke;
+				cc.invoke(&size_invoke,
+						static_cast<int (*)(const Array *)>([](const Array *arr) -> int {
+							return arr->size();
+						}),
+						asmjit::FuncSignature::build<int, const Array *>());
+				size_invoke->setArg(0, array_ptr);
+				size_invoke->setRet(0, array_size);
 
 				asmjit::Label empty_array_label = cc.newLabel();
 				asmjit::Label continue_label = cc.newLabel();
 
-				cc.test(is_empty_result, is_empty_result);
-				cc.jnz(empty_array_label);
+				cc.test(array_size, array_size);
+				cc.jz(empty_array_label);
 
-				asmjit::InvokeNode *get_first_element;
-				cc.invoke(&get_first_element, &get_array_first_element,
-						asmjit::FuncSignature::build<void, const Variant *, Variant *>());
-				get_first_element->setArg(0, container_ptr);
-				get_first_element->setArg(1, iterator_ptr);
+				asmjit::InvokeNode *get_first_invoke;
+				cc.invoke(&get_first_invoke,
+						static_cast<const Variant &(*)(const Array *, int)>([](const Array *arr, int index) -> const Variant & {
+							return arr->operator[](index);
+						}),
+						asmjit::FuncSignature::build<const Variant &, const Array *, int>());
+				get_first_invoke->setArg(0, array_ptr);
+				get_first_invoke->setArg(1, 0);
+
+				asmjit::x86::Gp first_element_ptr = cc.newIntPtr("first_element_ptr");
+				get_first_invoke->setRet(0, first_element_ptr);
+
+				copy_variant(context, iterator_ptr, first_element_ptr);
 
 				cc.jmp(continue_label);
 
