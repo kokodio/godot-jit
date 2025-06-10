@@ -52,11 +52,6 @@ void get_named(const Variant &base, const StringName &name, Variant *result, boo
 	*result = base.get_named(name, valid);
 }
 
-void initialize_counter_int(Variant *counter) {
-	VariantInternal::initialize(counter, Variant::INT);
-	*VariantInternal::get_int(counter) = 0;
-}
-
 bool iterate_array_step(Variant *counter, const Variant *container, Variant *iterator) {
 	const Array *array = VariantInternal::get_array(container);
 	int64_t *idx = VariantInternal::get_int(counter);
@@ -710,6 +705,87 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 3;
 			} break;
 
+			case GDScriptFunction::OPCODE_CONSTRUCT_ARRAY: {
+				int instr_arg_count = gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				int dst_addr = gdscript->_code_ptr[ip];
+				int argc = gdscript->_code_ptr[ip + 1];
+
+				print_line(ip, "CONSTRUCT_ARRAY, argc=", argc);
+
+				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - argc);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
+
+				asmjit::InvokeNode *construct_invoke;
+				cc.invoke(&construct_invoke,
+						static_cast<void (*)(Variant *, Variant **, int)>(
+								[](Variant *dst, Variant **args, int argc) {
+									Array array;
+									array.resize(argc);
+									for (int i = 0; i < argc; i++) {
+										array[i] = *args[i];
+									}
+									*dst = Variant();
+									*dst = array;
+								}),
+						asmjit::FuncSignature::build<void, Variant *, Variant **, int>());
+
+				construct_invoke->setArg(0, dst_ptr);
+				construct_invoke->setArg(1, args_array);
+				construct_invoke->setArg(2, argc);
+
+				print_line("    Result:");
+				print_address_info(gdscript, dst_addr);
+
+				incr = 2;
+			} break;
+
+			case GDScriptFunction::OPCODE_CONSTRUCT_TYPED_ARRAY: {
+				int instr_arg_count = gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				int argc = gdscript->_code_ptr[ip + 1];
+				Variant::Type builtin_type = (Variant::Type)gdscript->_code_ptr[ip + 2];
+				int native_type_idx = gdscript->_code_ptr[ip + 3];
+				int script_type_addr = gdscript->_code_ptr[ip - argc - 1];
+				int dst_addr = gdscript->_code_ptr[ip - 1];
+
+				const StringName native_type = gdscript->_global_names_ptr[native_type_idx];
+
+				print_line(ip, "CONSTRUCT_TYPED_ARRAY, argc=", argc, ", builtin_type=", Variant::get_type_name(builtin_type), ", native_type_idx=", native_type_idx, ", script_type_addr=", script_type_addr);
+
+				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - argc);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
+				asmjit::x86::Gp script_type_ptr = get_variant_ptr(context, script_type_addr);
+
+				asmjit::InvokeNode *construct_invoke;
+				cc.invoke(&construct_invoke,
+						static_cast<void (*)(Variant *, Variant **, int, Variant *, int, const StringName *)>(
+								[](Variant *dst, Variant **args, int argc, Variant *script_type, int builtin, const StringName *native) {
+									Array array;
+									array.resize(argc);
+									for (int i = 0; i < argc; i++) {
+										array[i] = *args[i];
+									}
+									*dst = Variant();
+
+									StringName class_name = ((Variant::Type)builtin == Variant::OBJECT) ? *native : class_name;
+									*dst = Array(array, (Variant::Type)builtin, class_name, *script_type);
+								}),
+						asmjit::FuncSignature::build<void, Variant *, Variant **, int, Variant *, int, const StringName *>());
+
+				construct_invoke->setArg(0, dst_ptr);
+				construct_invoke->setArg(1, args_array);
+				construct_invoke->setArg(2, argc);
+				construct_invoke->setArg(3, script_type_ptr);
+				construct_invoke->setArg(4, builtin_type);
+				construct_invoke->setArg(5, &native_type);
+
+				print_line("    Result:");
+				print_address_info(gdscript, dst_addr);
+
+				incr = 4;
+			} break;
+
 			case GDScriptFunction::OPCODE_CALL:
 			case GDScriptFunction::OPCODE_CALL_RETURN: {
 				int instr_arg_count = gdscript->_code_ptr[++ip];
@@ -836,6 +912,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				incr = 3;
 			} break;
+
 			case GDScriptFunction::OPCODE_CALL_BUILTIN_TYPE_VALIDATED: {
 				int instr_arg_count = gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
@@ -849,7 +926,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				asmjit::x86::Gp base_ptr = get_variant_ptr(context, base_addr);
 				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
-				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - argc);
+				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - instr_arg_count + 1);
 
 				asmjit::InvokeNode *call_invoke;
 				cc.invoke(&call_invoke, method_func,
@@ -912,6 +989,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				print_line(ip, "JUMP to: ", gdscript->_code_ptr[ip + 1]);
 				incr += 2;
 			} break;
+
 			case GDScriptFunction::OPCODE_JUMP_IF: {
 				int condition_addr = gdscript->_code_ptr[ip + 1];
 				int target = gdscript->_code_ptr[ip + 2];
@@ -1433,6 +1511,16 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				incr = 3;
+			} break;
+			case GDScriptFunction::OPCODE_CONSTRUCT_ARRAY: {
+				int instr_arg_count = context.gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				incr = 2;
+			} break;
+			case GDScriptFunction::OPCODE_CONSTRUCT_TYPED_ARRAY: {
+				int instr_arg_count = context.gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				incr = 4;
 			} break;
 			case GDScriptFunction::OPCODE_CALL:
 			case GDScriptFunction::OPCODE_CALL_RETURN: {
