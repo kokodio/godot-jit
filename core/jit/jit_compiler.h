@@ -40,10 +40,9 @@
 
 struct JitContext {
 	const GDScriptFunction *gdscript;
-	asmjit::x86::Gp stack_ptr;
-	asmjit::x86::Gp members_ptr;
 	asmjit::x86::Gp args_ptr;
 	asmjit::x86::Gp result_ptr;
+	asmjit::x86::Gp variant_addresses_ptr;
 	asmjit::x86::Gp call_error_ptr;
 	asmjit::x86::Gp bool_ptr;
 	asmjit::x86::Gp operator_ptr;

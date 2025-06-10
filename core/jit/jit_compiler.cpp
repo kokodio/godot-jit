@@ -155,27 +155,23 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
-	sig.addArg(asmjit::TypeId::kIntPtr);
 
 	asmjit::FuncNode *funcNode = cc.addFunc(sig);
 
 	asmjit::x86::Gp result_ptr = cc.newIntPtr("result_ptr");
 	asmjit::x86::Gp args_ptr = cc.newIntPtr("args_ptr");
-	asmjit::x86::Gp members_ptr = cc.newIntPtr("members_ptr");
-	asmjit::x86::Gp stack_ptr = cc.newIntPtr("stack_ptr");
+	asmjit::x86::Gp variant_addreses_ptr = cc.newIntPtr("stack_ptr");
 
 	funcNode->setArg(0, result_ptr);
 	funcNode->setArg(1, args_ptr);
-	funcNode->setArg(2, members_ptr);
-	funcNode->setArg(3, stack_ptr);
+	funcNode->setArg(2, variant_addreses_ptr);
 
 	JitContext context;
 	context.gdscript = gdscript;
-	context.stack_ptr = stack_ptr;
-	context.members_ptr = members_ptr;
 	context.args_ptr = args_ptr;
 	context.cc = &cc;
 	context.result_ptr = result_ptr;
+	context.variant_addresses_ptr = variant_addreses_ptr;
 
 	auto analysis = analyze_function(context);
 	initialize_context(context, analysis);
@@ -589,14 +585,18 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 			case GDScriptFunction::OPCODE_ASSIGN_NULL: {
 				int dst_addr = gdscript->_code_ptr[ip + 1];
 
-				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
-				asmjit::x86::Gp src_ptr = cc.newIntPtr("null_ptr");
-
-				context.cc->lea(src_ptr, asmjit::x86::ptr(context.stack_ptr, 2 * STACK_SLOT_SIZE)); // STACK[2] - Nil
-
-				copy_variant(context, dst_ptr, src_ptr);
-
 				print_line(ip, "ASSIGN_NULL");
+
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
+
+				asmjit::InvokeNode *assign_invoke;
+				cc.invoke(&assign_invoke,
+						static_cast<void (*)(Variant *)>([](Variant *dst) {
+							*dst = Variant();
+						}),
+						asmjit::FuncSignature::build<void, Variant *>());
+				assign_invoke->setArg(0, dst_ptr);
+
 				print_line("    Destination:");
 				print_address_info(gdscript, dst_addr);
 
@@ -882,7 +882,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp base_obj = context.cc->newIntPtr("base_obj");
 				context.cc->mov(base_obj, asmjit::x86::ptr(base_ptr, offsetof(Variant, _data) + offsetof(Variant::ObjData, obj)));
 
-				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - argc);
+				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - instr_arg_count + 1);
 
 				asmjit::InvokeNode *method_invoke;
 				context.cc->invoke(&method_invoke,
@@ -1091,6 +1091,67 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 5;
 			} break;
 
+#define JIT_OPCODE_TYPE_ADJUST(m_v_type, m_c_type)                    \
+	case GDScriptFunction::OPCODE_TYPE_ADJUST_##m_v_type: {           \
+		int dst_addr = gdscript->_code_ptr[ip + 1];                   \
+                                                                      \
+		print_line(ip, "TYPE_ADJUST_" #m_v_type);                     \
+                                                                      \
+		asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr); \
+                                                                      \
+		asmjit::InvokeNode *adjust_invoke;                            \
+		cc.invoke(&adjust_invoke,                                     \
+				static_cast<void (*)(Variant *)>([](Variant *arg) {   \
+					VariantTypeAdjust<m_c_type>::adjust(arg);         \
+				}),                                                   \
+				asmjit::FuncSignature::build<void, Variant *>());     \
+		adjust_invoke->setArg(0, dst_ptr);                            \
+                                                                      \
+		print_line("    Destination:");                               \
+		print_address_info(gdscript, dst_addr);                       \
+                                                                      \
+		incr = 2;                                                     \
+	} break;
+
+				JIT_OPCODE_TYPE_ADJUST(BOOL, bool)
+				JIT_OPCODE_TYPE_ADJUST(INT, int64_t)
+				JIT_OPCODE_TYPE_ADJUST(FLOAT, double)
+				JIT_OPCODE_TYPE_ADJUST(STRING, String)
+				JIT_OPCODE_TYPE_ADJUST(VECTOR2, Vector2)
+				JIT_OPCODE_TYPE_ADJUST(VECTOR2I, Vector2i)
+				JIT_OPCODE_TYPE_ADJUST(RECT2, Rect2)
+				JIT_OPCODE_TYPE_ADJUST(RECT2I, Rect2i)
+				JIT_OPCODE_TYPE_ADJUST(VECTOR3, Vector3)
+				JIT_OPCODE_TYPE_ADJUST(VECTOR3I, Vector3i)
+				JIT_OPCODE_TYPE_ADJUST(TRANSFORM2D, Transform2D)
+				JIT_OPCODE_TYPE_ADJUST(VECTOR4, Vector4)
+				JIT_OPCODE_TYPE_ADJUST(VECTOR4I, Vector4i)
+				JIT_OPCODE_TYPE_ADJUST(PLANE, Plane)
+				JIT_OPCODE_TYPE_ADJUST(QUATERNION, Quaternion)
+				JIT_OPCODE_TYPE_ADJUST(AABB, AABB)
+				JIT_OPCODE_TYPE_ADJUST(BASIS, Basis)
+				JIT_OPCODE_TYPE_ADJUST(TRANSFORM3D, Transform3D)
+				JIT_OPCODE_TYPE_ADJUST(PROJECTION, Projection)
+				JIT_OPCODE_TYPE_ADJUST(COLOR, Color)
+				JIT_OPCODE_TYPE_ADJUST(STRING_NAME, StringName)
+				JIT_OPCODE_TYPE_ADJUST(NODE_PATH, NodePath)
+				JIT_OPCODE_TYPE_ADJUST(RID, RID)
+				JIT_OPCODE_TYPE_ADJUST(OBJECT, Object *)
+				JIT_OPCODE_TYPE_ADJUST(CALLABLE, Callable)
+				JIT_OPCODE_TYPE_ADJUST(SIGNAL, Signal)
+				JIT_OPCODE_TYPE_ADJUST(DICTIONARY, Dictionary)
+				JIT_OPCODE_TYPE_ADJUST(ARRAY, Array)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_BYTE_ARRAY, PackedByteArray)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_INT32_ARRAY, PackedInt32Array)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_INT64_ARRAY, PackedInt64Array)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_FLOAT32_ARRAY, PackedFloat32Array)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_FLOAT64_ARRAY, PackedFloat64Array)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_STRING_ARRAY, PackedStringArray)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_VECTOR2_ARRAY, PackedVector2Array)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_VECTOR3_ARRAY, PackedVector3Array)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_COLOR_ARRAY, PackedColorArray)
+				JIT_OPCODE_TYPE_ADJUST(PACKED_VECTOR4_ARRAY, PackedVector4Array)
+
 			case GDScriptFunction::OPCODE_LINE: {
 				print_line(ip, "LINE: ", gdscript->_code_ptr[ip + 1]);
 				incr += 2;
@@ -1142,20 +1203,13 @@ void JitCompiler::print_function_info(const GDScriptFunction *gdscript) {
 	}
 }
 
-asmjit::x86::Gp JitCompiler::get_variant_ptr(JitContext &context, int address) {
-	int address_type, address_index;
-	decode_address(address, address_type, address_index);
+asmjit::x86::Gp JitCompiler::get_variant_ptr(JitContext &context, int address) { // USE constant_ptr
+	int type, index;
+	decode_address(address, type, index);
 
 	asmjit::x86::Gp variant_ptr = context.cc->newIntPtr();
-
-	if (address_type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
-		context.cc->mov(variant_ptr, (intptr_t)context.gdscript->_constants_ptr);
-		context.cc->lea(variant_ptr, asmjit::x86::ptr(variant_ptr, address_index * sizeof(Variant)));
-	} else if (address_type == GDScriptFunction::ADDR_TYPE_STACK) {
-		context.cc->lea(variant_ptr, asmjit::x86::ptr(context.stack_ptr, address_index * STACK_SLOT_SIZE));
-	} else if (address_type == GDScriptFunction::ADDR_TYPE_MEMBER) {
-		context.cc->lea(variant_ptr, asmjit::x86::ptr(context.members_ptr, address_index * sizeof(Variant)));
-	}
+	context.cc->mov(variant_ptr, asmjit::x86::ptr(context.variant_addresses_ptr, type * PTR_SIZE));
+	context.cc->lea(variant_ptr, asmjit::x86::ptr(variant_ptr, index * sizeof(Variant)));
 
 	return variant_ptr;
 }
@@ -1458,6 +1512,47 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 					print_line("Created label for ITERATE target: ", jump_target);
 				}
 				incr = 5;
+			} break;
+
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_BOOL:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_INT:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_FLOAT:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_STRING:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_VECTOR2:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_VECTOR2I:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_RECT2:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_RECT2I:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_VECTOR3:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_VECTOR3I:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_TRANSFORM2D:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_VECTOR4:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_VECTOR4I:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PLANE:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_QUATERNION:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_AABB:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_BASIS:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_TRANSFORM3D:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PROJECTION:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_COLOR:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_STRING_NAME:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_NODE_PATH:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_RID:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_OBJECT:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_CALLABLE:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_SIGNAL:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_DICTIONARY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_BYTE_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_INT32_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_INT64_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_FLOAT32_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_FLOAT64_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_STRING_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_VECTOR2_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_VECTOR3_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_COLOR_ARRAY:
+			case GDScriptFunction::OPCODE_TYPE_ADJUST_PACKED_VECTOR4_ARRAY: {
+				incr = 2;
 			} break;
 
 			case GDScriptFunction::OPCODE_LINE: {

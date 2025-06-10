@@ -624,30 +624,6 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 
 	GDScriptLanguage::get_singleton()->enter_function(p_instance, this, stack, &ip, &line);
 
-	if (is_jit && jit_function) {
-		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant *members, Variant *stack);
-		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
-		Variant *members_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
-
-		jit_func(&retvalue, p_args, members_ptr, stack);
-
-		if (!p_state) {
-			GDScriptLanguage::get_singleton()->exit_function();
-
-			for (int i = FIXED_ADDRESSES_MAX; i < _stack_size; i++) {
-				stack[i].~Variant();
-			}
-		}
-
-		for (int i = 0; i < FIXED_ADDRESSES_MAX; i++) {
-			stack[i].~Variant();
-		}
-
-		call_depth--;
-
-		return retvalue;
-	}
-
 #ifdef DEBUG_ENABLED
 #define GD_ERR_BREAK(m_cond)                                                                                           \
 	{                                                                                                                  \
@@ -725,6 +701,29 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 
 	bool awaited = false;
 	Variant *variant_addresses[ADDR_TYPE_MAX] = { stack, _constants_ptr, p_instance ? p_instance->members.ptrw() : nullptr };
+
+	if (is_jit && jit_function) {
+		typedef void (*JitFunction)(Variant *result, const Variant **args, Variant **variant_addresses);
+		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
+
+		jit_func(&retvalue, p_args, variant_addresses);
+
+		if (!p_state) {
+			GDScriptLanguage::get_singleton()->exit_function();
+
+			for (int i = FIXED_ADDRESSES_MAX; i < _stack_size; i++) {
+				stack[i].~Variant();
+			}
+		}
+
+		for (int i = 0; i < FIXED_ADDRESSES_MAX; i++) {
+			stack[i].~Variant();
+		}
+
+		call_depth--;
+
+		return retvalue;
+	}
 
 #ifdef DEBUG_ENABLED
 	OPCODE_WHILE(ip < _code_size) {
