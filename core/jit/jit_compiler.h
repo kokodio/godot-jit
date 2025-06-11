@@ -46,7 +46,6 @@ struct JitContext {
 	asmjit::x86::Gp call_error_ptr;
 	asmjit::x86::Gp bool_ptr;
 	asmjit::x86::Gp operator_ptr;
-	asmjit::x86::Gp arg_array_ptr;
 	asmjit::x86::Compiler *cc;
 };
 
@@ -54,8 +53,6 @@ struct FunctionAnalysis {
 	bool uses_bool = false;
 	bool uses_error = false;
 	bool uses_operator = false;
-	bool uses_arg_array = false;
-	int arg_max = 0;
 	HashMap<int, asmjit::Label> jump_labels;
 };
 
@@ -91,7 +88,6 @@ private:
 	asmjit::x86::Gp get_bool_ptr(JitContext &context, bool value);
 	asmjit::x86::Gp prepare_args_array(JitContext &context, int argc, int ip_base);
 	asmjit::x86::Gp get_variant_ptr(JitContext &context, int address);
-	asmjit::x86::Gp acquire_variant_ptr(JitContext &context, int address);
 
 public:
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
