@@ -1505,27 +1505,37 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				analysis.uses_error = true;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CONSTRUCT_VALIDATED: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CONSTRUCT_ARRAY: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 2;
 			} break;
 			case GDScriptFunction::OPCODE_CONSTRUCT_TYPED_ARRAY: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 4;
 			} break;
 			case GDScriptFunction::OPCODE_CALL:
 			case GDScriptFunction::OPCODE_CALL_RETURN: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				analysis.uses_error = true;
 				incr = 3;
 			} break;
@@ -1533,27 +1543,37 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				analysis.uses_error = true;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CALL_UTILITY_VALIDATED: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CALL_GDSCRIPT_UTILITY: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				analysis.uses_error = true;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CALL_BUILTIN_TYPE_VALIDATED: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
+				analysis.uses_arg_array = true;
+				analysis.arg_max = MAX(analysis.arg_max, context.gdscript->_code_ptr[ip + 1]);
 				incr = 3;
 			} break;
 			case GDScriptFunction::OPCODE_JUMP: {
@@ -1747,28 +1767,24 @@ asmjit::x86::Gp JitCompiler::get_bool_ptr(JitContext &context, bool value) {
 }
 
 asmjit::x86::Gp JitCompiler::prepare_args_array(JitContext &context, int argc, int ip_base) {
-	asmjit::x86::Gp args_array = context.cc->newIntPtr("args_array");
-
 	if (argc > 0) {
-		int args_array_size = argc * PTR_SIZE;
-		asmjit::x86::Mem args_stack = context.cc->newStack(args_array_size, 16);
-		context.cc->lea(args_array, args_stack);
-
 		for (int i = 0; i < argc; i++) {
 			int arg_addr = context.gdscript->_code_ptr[ip_base + i];
 
 			asmjit::x86::Gp arg_ptr = get_variant_ptr(context, arg_addr);
 
-			context.cc->mov(asmjit::x86::ptr(args_array, i * PTR_SIZE), arg_ptr);
+			context.cc->mov(asmjit::x86::ptr(context.arg_array_ptr, i * PTR_SIZE), arg_ptr);
 
 			print_line("    Arg[", i, "]");
 			print_address_info(context.gdscript, arg_addr);
 		}
-	} else {
-		context.cc->mov(args_array, 0);
-	}
 
-	return args_array;
+		return context.arg_array_ptr;
+	} else {
+		asmjit::x86::Gp null_ptr = context.cc->newIntPtr("null_args");
+		context.cc->mov(null_ptr, 0);
+		return null_ptr;
+	}
 }
 
 void JitCompiler::cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr) {
@@ -1833,5 +1849,11 @@ void JitCompiler::initialize_context(JitContext &context, const FunctionAnalysis
 		context.bool_ptr = context.cc->newIntPtr("bool_ptr");
 		context.cc->lea(context.bool_ptr, mem);
 		context.cc->mov(asmjit::x86::byte_ptr(context.bool_ptr), 0);
+	}
+
+	if (analysis.uses_arg_array) {
+		asmjit::x86::Mem mem = context.cc->newStack(analysis.arg_max * PTR_SIZE, 16);
+		context.arg_array_ptr = context.cc->newIntPtr("arg_array_ptr");
+		context.cc->lea(context.arg_array_ptr, mem);
 	}
 }
