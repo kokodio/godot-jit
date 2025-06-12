@@ -293,8 +293,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					if (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT")) {
 						handle_float_operation(operation_name, context, left_addr, right_addr, result_addr);
 					} else {
-						asmjit::x86::Gp left_val = extract_int_from_variant(context, left_addr);
-						asmjit::x86::Gp right_val = extract_int_from_variant(context, right_addr);
+						asmjit::x86::Gp left_val = context.cc->newInt64();
+						extract_int_from_variant(context, left_val, left_addr);
+						asmjit::x86::Gp right_val = context.cc->newInt64();
+						extract_int_from_variant(context, right_val, right_addr);
 						asmjit::x86::Gp result_val = cc.newInt64();
 
 						handle_int_operation(operation_name, context, left_val, right_val, result_val);
@@ -368,8 +370,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				asmjit::x86::Gp base_ptr = get_variant_ptr(context, base_addr);
 				asmjit::x86::Gp value_ptr = get_variant_ptr(context, value_addr);
-				asmjit::x86::Gp index_val = extract_int_from_variant(context, index_addr);
-
+				asmjit::x86::Gp index_val = cc.newInt64("index_val");
+				extract_int_from_variant(context, index_val, index_addr);
 				cc.mov(asmjit::x86::byte_ptr(context.bool_ptr), 0);
 
 				asmjit::InvokeNode *setter_invoke;
@@ -432,7 +434,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp base_ptr = get_variant_ptr(context, base_addr);
 				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, result_addr);
 
-				asmjit::x86::Gp index_val = extract_int_from_variant(context, index_addr);
+				asmjit::x86::Gp index_val = cc.newInt64("index_val");
+				extract_int_from_variant(context, index_val, index_addr);
 
 				cc.mov(asmjit::x86::byte_ptr(context.bool_ptr), 0);
 
@@ -1002,7 +1005,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int condition_addr = gdscript->_code_ptr[ip + 1];
 				int target = gdscript->_code_ptr[ip + 2];
 
-				asmjit::x86::Gp condition = extract_int_from_variant(context, condition_addr);
+				asmjit::x86::Gp condition = cc.newInt64("index_val");
+				extract_int_from_variant(context, condition, condition_addr);
 
 				cc.test(condition, condition);
 				cc.jnz(analysis.jump_labels[target]);
@@ -1017,7 +1021,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int condition_addr = gdscript->_code_ptr[ip + 1];
 				int target = gdscript->_code_ptr[ip + 2];
 
-				asmjit::x86::Gp condition = extract_int_from_variant(context, condition_addr);
+				asmjit::x86::Gp condition = cc.newInt64("index_val");
+				extract_int_from_variant(context, condition, condition_addr);
 
 				cc.test(condition, condition);
 				cc.jz(analysis.jump_labels[target]);
@@ -1363,12 +1368,14 @@ void JitCompiler::handle_float_operation(String &operation_name, JitContext &ctx
 		asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
 
 		if (operation_name.contains("INT_FLOAT")) {
-			asmjit::x86::Gp int_val = extract_int_from_variant(ctx, left_addr);
+			asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
+			extract_int_from_variant(ctx, int_val, left_addr);
 			convert_int_to_float(ctx, int_val, left_val);
 			extract_float_from_variant(ctx, right_val, right_addr);
 		} else if (operation_name.contains("FLOAT_INT")) {
 			extract_float_from_variant(ctx, left_val, left_addr);
-			asmjit::x86::Gp int_val = extract_int_from_variant(ctx, right_addr);
+			asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
+			extract_int_from_variant(ctx, int_val, right_addr);
 			convert_int_to_float(ctx, int_val, right_val);
 		} else {
 			extract_float_from_variant(ctx, left_val, left_addr);
@@ -1394,12 +1401,14 @@ void JitCompiler::handle_float_operation(String &operation_name, JitContext &ctx
 		asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
 
 		if (operation_name.contains("INT_FLOAT")) {
-			asmjit::x86::Gp int_val = extract_int_from_variant(ctx, left_addr);
+			asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
+			extract_int_from_variant(ctx, int_val, left_addr);
 			convert_int_to_float(ctx, int_val, left_val);
 			extract_float_from_variant(ctx, right_val, right_addr);
 		} else if (operation_name.contains("FLOAT_INT")) {
 			extract_float_from_variant(ctx, left_val, left_addr);
-			asmjit::x86::Gp int_val = extract_int_from_variant(ctx, right_addr);
+			asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
+			extract_int_from_variant(ctx, int_val, right_addr);
 			convert_int_to_float(ctx, int_val, right_val);
 		} else {
 			extract_float_from_variant(ctx, left_val, left_addr);
@@ -1686,16 +1695,13 @@ void JitCompiler::copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, as
 	copy_invoke->setArg(1, src_ptr);
 }
 
-asmjit::x86::Gp JitCompiler::extract_int_from_variant(JitContext &context, int address) {
-	asmjit::x86::Gp result_reg = context.cc->newInt64();
+void JitCompiler::extract_int_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address) {
 	int address_type, address_index;
 	decode_address(address, address_type, address_index);
 
 	asmjit::x86::Gp variant_ptr = get_variant_ptr(context, address);
 
 	context.cc->mov(result_reg, asmjit::x86::qword_ptr(variant_ptr, OFFSET_INT));
-
-	return result_reg;
 }
 
 void JitCompiler::extract_type_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address) {
@@ -1703,9 +1709,7 @@ void JitCompiler::extract_type_from_variant(JitContext &context, asmjit::x86::Gp
 	decode_address(address, address_type, address_index);
 
 	asmjit::x86::Gp variant_ptr = get_variant_ptr(context, address);
-
-	context.cc->mov(result_reg.r32(), asmjit::x86::dword_ptr(variant_ptr, 0));
-	context.cc->movzx(result_reg, result_reg.r32());
+	context.cc->mov(result_reg, asmjit::x86::dword_ptr(variant_ptr, 0));
 }
 
 void JitCompiler::extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address) {

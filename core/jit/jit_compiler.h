@@ -76,7 +76,7 @@ private:
 	void handle_int_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
 	void handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
-	asmjit::x86::Gp extract_int_from_variant(JitContext &context, int address);
+	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address);
 	void extract_type_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
 	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
