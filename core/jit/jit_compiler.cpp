@@ -150,23 +150,31 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
+	sig.addArg(asmjit::TypeId::kIntPtr);
 
 	asmjit::FuncNode *funcNode = cc.addFunc(sig);
 
 	asmjit::x86::Gp result_ptr = cc.newIntPtr("result_ptr");
 	asmjit::x86::Gp args_ptr = cc.newIntPtr("args_ptr");
 	asmjit::x86::Gp variant_addreses_ptr = cc.newIntPtr("stack_ptr");
+	asmjit::x86::Gp stack_ptr = cc.newIntPtr("stack_ptr");
+	asmjit::x86::Gp members_ptr = cc.newIntPtr("members_ptr");
 
 	funcNode->setArg(0, result_ptr);
 	funcNode->setArg(1, args_ptr);
-	funcNode->setArg(2, variant_addreses_ptr);
+	funcNode->setArg(2, stack_ptr);
+	funcNode->setArg(3, members_ptr);
 
 	JitContext context;
 	context.gdscript = gdscript;
 	context.args_ptr = args_ptr;
 	context.cc = &cc;
 	context.result_ptr = result_ptr;
-	context.variant_addresses_ptr = variant_addreses_ptr;
+	context.stack_ptr = stack_ptr;
+	context.members_ptr = members_ptr;
+	context.constants_ptr = cc.newIntPtr("constants_ptr");
+
+	cc.mov(context.constants_ptr, gdscript->_constants_ptr);
 
 	auto analysis = analyze_function(context);
 	initialize_context(context, analysis);
@@ -1281,13 +1289,19 @@ void JitCompiler::print_function_info(const GDScriptFunction *gdscript) {
 	}
 }
 
-asmjit::x86::Gp JitCompiler::get_variant_ptr(JitContext &context, int address) { // USE constant_ptr
+asmjit::x86::Gp JitCompiler::get_variant_ptr(JitContext &context, int address) {
 	int type, index;
 	decode_address(address, type, index);
 
 	asmjit::x86::Gp variant_ptr = context.cc->newIntPtr();
-	context.cc->mov(variant_ptr, asmjit::x86::ptr(context.variant_addresses_ptr, type * PTR_SIZE));
-	context.cc->lea(variant_ptr, asmjit::x86::ptr(variant_ptr, index * sizeof(Variant)));
+
+	if (type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
+		context.cc->lea(variant_ptr, asmjit::x86::ptr(context.constants_ptr, index * sizeof(Variant)));
+	} else if (type == GDScriptFunction::ADDR_TYPE_STACK) {
+		context.cc->lea(variant_ptr, asmjit::x86::ptr(context.stack_ptr, index * sizeof(Variant)));
+	} else if (type == GDScriptFunction::ADDR_TYPE_MEMBER) {
+		context.cc->lea(variant_ptr, asmjit::x86::ptr(context.members_ptr, index * sizeof(Variant)));
+	}
 
 	return variant_ptr;
 }
