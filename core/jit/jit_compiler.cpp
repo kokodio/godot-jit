@@ -1055,6 +1055,39 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 3;
 			} break;
 
+			case GDScriptFunction::OPCODE_ITERATE_BEGIN_INT: {
+				int counter_addr = gdscript->_code_ptr[ip + 1];
+				int container_addr = gdscript->_code_ptr[ip + 2];
+				int iterator_addr = gdscript->_code_ptr[ip + 3];
+				int jump_target = gdscript->_code_ptr[ip + 4];
+
+				print_line(ip, "ITERATE_BEGIN_INT, jump to: ", jump_target);
+				print_line("    Counter:");
+				print_address_info(gdscript, counter_addr);
+				print_line("    Container:");
+				print_address_info(gdscript, container_addr);
+				print_line("    Iterator:");
+				print_address_info(gdscript, iterator_addr);
+
+				asmjit::x86::Gp container_ptr = get_variant_ptr(context, container_addr);
+				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
+
+				asmjit::x86::Gp size = cc.newInt64("size");
+				cc.mov(size, asmjit::x86::qword_ptr(container_ptr, OFFSET_INT));
+
+				cc.mov(asmjit::x86::dword_ptr(counter_ptr, 0), (int)Variant::INT);
+				cc.mov(asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT), 0);
+
+				cc.cmp(size, 0);
+				cc.jle(analysis.jump_labels[jump_target]);
+
+				asmjit::x86::Gp iterator_ptr = get_variant_ptr(context, iterator_addr);
+				cc.mov(asmjit::x86::dword_ptr(iterator_ptr, 0), (int)Variant::INT);
+				cc.mov(asmjit::x86::qword_ptr(iterator_ptr, OFFSET_INT), 0);
+
+				incr = 5;
+			} break;
+
 			case GDScriptFunction::OPCODE_ITERATE_BEGIN_ARRAY: {
 				int counter_addr = gdscript->_code_ptr[ip + 1];
 				int container_addr = gdscript->_code_ptr[ip + 2];
@@ -1158,6 +1191,38 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				cc.mov(asmjit::x86::qword_ptr(iterator_ptr, OFFSET_INT), from);
 
 				incr = 7;
+			} break;
+
+			case GDScriptFunction::OPCODE_ITERATE_INT: {
+				int counter_addr = gdscript->_code_ptr[ip + 1];
+				int container_addr = gdscript->_code_ptr[ip + 2];
+				int iterator_addr = gdscript->_code_ptr[ip + 3];
+				int jump_target = gdscript->_code_ptr[ip + 4];
+
+				print_line(ip, "ITERATE_INT, jump to: ", jump_target);
+				print_line("    Counter:");
+				print_address_info(gdscript, counter_addr);
+				print_line("    Container:");
+				print_address_info(gdscript, container_addr);
+				print_line("    Iterator:");
+				print_address_info(gdscript, iterator_addr);
+
+				asmjit::x86::Gp size = cc.newInt64("size");
+				extract_int_from_variant(context, size, container_addr);
+
+				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
+				asmjit::x86::Gp count = cc.newInt64("count");
+				context.cc->mov(count, asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT));
+				context.cc->add(count, 1);
+				context.cc->mov(asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT), count);
+
+				cc.cmp(count, size);
+				cc.jae(analysis.jump_labels[jump_target]);
+
+				asmjit::x86::Gp iterator_ptr = get_variant_ptr(context, iterator_addr);
+				cc.mov(asmjit::x86::qword_ptr(iterator_ptr, OFFSET_INT), count);
+
+				incr = 5;
 			} break;
 
 			case GDScriptFunction::OPCODE_ITERATE_ARRAY: {
@@ -1696,7 +1761,9 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				incr = 3;
 			} break;
 
+			case GDScriptFunction::OPCODE_ITERATE_BEGIN_INT:
 			case GDScriptFunction::OPCODE_ITERATE_BEGIN_ARRAY:
+			case GDScriptFunction::OPCODE_ITERATE_INT:
 			case GDScriptFunction::OPCODE_ITERATE_ARRAY: {
 				int jump_target = context.gdscript->_code_ptr[ip + 4];
 				if (!analysis.jump_labels.has(jump_target)) {
