@@ -51,19 +51,6 @@ void set_named(Variant &base, const StringName &name, const Variant *value, bool
 void get_named(const Variant &base, const StringName &name, Variant *result, bool &valid) {
 	*result = base.get_named(name, valid);
 }
-
-bool iterate_array_step(Variant *counter, const Variant *container, Variant *iterator) {
-	const Array *array = VariantInternal::get_array(container);
-	int64_t *idx = VariantInternal::get_int(counter);
-	(*idx)++;
-
-	if (*idx >= array->size()) {
-		return false;
-	} else {
-		*iterator = array->get(*idx);
-		return true;
-	}
-}
 }
 
 JitCompiler *JitCompiler::singleton = nullptr;
@@ -1109,34 +1096,68 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				size_invoke->setArg(0, array_ptr);
 				size_invoke->setRet(0, array_size);
 
-				asmjit::Label empty_array_label = cc.newLabel();
-				asmjit::Label continue_label = cc.newLabel();
-
 				cc.test(array_size, array_size);
-				cc.jz(empty_array_label);
+				cc.jz(analysis.jump_labels[jump_target]);
 
 				asmjit::InvokeNode *get_first_invoke;
 				cc.invoke(&get_first_invoke,
-						static_cast<const Variant &(*)(const Array *, int)>([](const Array *arr, int index) -> const Variant & {
-							return arr->operator[](index);
+						static_cast<const Variant &(*)(const Array *)>([](const Array *arr) -> const Variant & {
+							return arr->operator[](0);
 						}),
-						asmjit::FuncSignature::build<const Variant &, const Array *, int>());
+						asmjit::FuncSignature::build<const Variant &, const Array *>());
 				get_first_invoke->setArg(0, array_ptr);
-				get_first_invoke->setArg(1, 0);
-
-				asmjit::x86::Gp first_element_ptr = cc.newIntPtr("first_element_ptr");
-				get_first_invoke->setRet(0, first_element_ptr);
-
-				copy_variant(context, iterator_ptr, first_element_ptr);
-
-				cc.jmp(continue_label);
-
-				cc.bind(empty_array_label);
-				cc.jmp(analysis.jump_labels[jump_target]);
-
-				cc.bind(continue_label);
+				get_first_invoke->setRet(0, iterator_ptr);
 
 				incr = 5;
+			} break;
+
+			case GDScriptFunction::OPCODE_ITERATE_BEGIN_RANGE: {
+				int counter_addr = gdscript->_code_ptr[ip + 1];
+				int from_addr = gdscript->_code_ptr[ip + 2];
+				int to_addr = gdscript->_code_ptr[ip + 3];
+				int step_addr = gdscript->_code_ptr[ip + 4];
+				int iterator_addr = gdscript->_code_ptr[ip + 5];
+				int jump_target = gdscript->_code_ptr[ip + 6];
+
+				print_line(ip, "ITERATE_BEGIN_RANGE, jump to: ", jump_target);
+				print_line("    Counter:");
+				print_address_info(gdscript, counter_addr);
+				print_line("    From:");
+				print_address_info(gdscript, from_addr);
+				print_line("    To:");
+				print_address_info(gdscript, to_addr);
+				print_line("    Step:");
+				print_address_info(gdscript, step_addr);
+				print_line("    Iterator:");
+				print_address_info(gdscript, iterator_addr);
+
+				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
+
+				asmjit::x86::Gp from = cc.newInt64("from");
+				extract_int_from_variant(context, from, from_addr);
+
+				asmjit::x86::Gp to = cc.newInt64("to");
+				extract_int_from_variant(context, to, to_addr);
+
+				asmjit::x86::Gp step = cc.newInt64("step");
+				extract_int_from_variant(context, step, step_addr);
+
+				cc.mov(asmjit::x86::dword_ptr(counter_ptr, 0), (int)Variant::INT);
+				cc.mov(asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT), from);
+
+				asmjit::x86::Gp condition = cc.newInt64("condition");
+				cc.mov(condition, to);
+				cc.sub(condition, from);
+				cc.imul(condition, step);
+
+				cc.cmp(condition, 0);
+				cc.jle(analysis.jump_labels[jump_target]);
+
+				asmjit::x86::Gp iterator_ptr = get_variant_ptr(context, iterator_addr);
+				cc.mov(asmjit::x86::dword_ptr(iterator_ptr, 0), (int)Variant::INT);
+				cc.mov(asmjit::x86::qword_ptr(iterator_ptr, OFFSET_INT), from);
+
+				incr = 7;
 			} break;
 
 			case GDScriptFunction::OPCODE_ITERATE_ARRAY: {
@@ -1155,31 +1176,91 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				asmjit::x86::Gp container_ptr = get_variant_ptr(context, container_addr);
 				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
+
+				asmjit::x86::Gp array_ptr = cc.newIntPtr("array_ptr");
+				asmjit::InvokeNode *get_array_invoke;
+				cc.invoke(&get_array_invoke,
+						static_cast<const Array *(*)(const Variant *)>([](const Variant *v) -> const Array * {
+							return VariantInternal::get_array(v);
+						}),
+						asmjit::FuncSignature::build<const Array *, const Variant *>());
+				get_array_invoke->setArg(0, container_ptr);
+				get_array_invoke->setRet(0, array_ptr);
+
+				asmjit::x86::Gp idx = cc.newInt64("index");
+				context.cc->mov(idx, asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT));
+				context.cc->add(idx, 1);
+				context.cc->mov(asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT), idx);
+
+				asmjit::x86::Gp array_size = cc.newInt32("array_size");
+				asmjit::InvokeNode *size_invoke;
+				cc.invoke(&size_invoke,
+						static_cast<int (*)(const Array *)>([](const Array *arr) -> int {
+							return arr->size();
+						}),
+						asmjit::FuncSignature::build<int, const Array *>());
+				size_invoke->setArg(0, array_ptr);
+				size_invoke->setRet(0, array_size);
+
+				cc.cmp(idx.r32(), array_size);
+				cc.jae(analysis.jump_labels[jump_target]);
+
 				asmjit::x86::Gp iterator_ptr = get_variant_ptr(context, iterator_addr);
-
-				asmjit::InvokeNode *iterate_call;
-				cc.invoke(&iterate_call, &iterate_array_step,
-						asmjit::FuncSignature::build<bool, Variant *, const Variant *, Variant *>());
-				iterate_call->setArg(0, counter_ptr);
-				iterate_call->setArg(1, container_ptr);
-				iterate_call->setArg(2, iterator_ptr);
-
-				asmjit::x86::Gp continue_iteration = cc.newInt8("continue_iteration");
-				iterate_call->setRet(0, continue_iteration);
-
-				asmjit::Label end_iteration_label = cc.newLabel();
-				asmjit::Label continue_label = cc.newLabel();
-
-				cc.test(continue_iteration, continue_iteration);
-				cc.jz(end_iteration_label);
-				cc.jmp(continue_label);
-
-				cc.bind(end_iteration_label);
-				cc.jmp(analysis.jump_labels[jump_target]);
-
-				cc.bind(continue_label);
+				asmjit::InvokeNode *get_invoke;
+				cc.invoke(&get_invoke,
+						static_cast<const Variant &(*)(const Array *, int)>([](const Array *arr, int index) -> const Variant & {
+							return arr->operator[](index);
+						}),
+						asmjit::FuncSignature::build<const Variant &, const Array *, int>());
+				get_invoke->setArg(0, array_ptr);
+				get_invoke->setArg(1, idx);
+				get_invoke->setRet(0, iterator_ptr);
 
 				incr = 5;
+			} break;
+
+			case GDScriptFunction::OPCODE_ITERATE_RANGE: {
+				int counter_addr = gdscript->_code_ptr[ip + 1];
+				int to_addr = gdscript->_code_ptr[ip + 2];
+				int step_addr = gdscript->_code_ptr[ip + 3];
+				int iterator_addr = gdscript->_code_ptr[ip + 4];
+				int jump_target = gdscript->_code_ptr[ip + 5];
+
+				print_line(ip, "ITERATE_RANGE, jump to: ", jump_target);
+				print_line("    Counter:");
+				print_address_info(gdscript, counter_addr);
+				print_line("    To:");
+				print_address_info(gdscript, to_addr);
+				print_line("    Step:");
+				print_address_info(gdscript, step_addr);
+				print_line("    Iterator:");
+				print_address_info(gdscript, iterator_addr);
+
+				asmjit::x86::Gp counter_ptr = get_variant_ptr(context, counter_addr);
+
+				asmjit::x86::Gp to = cc.newInt64("to");
+				extract_int_from_variant(context, to, to_addr);
+
+				asmjit::x86::Gp step = cc.newInt64("step");
+				extract_int_from_variant(context, step, step_addr);
+
+				asmjit::x86::Gp count = cc.newInt64("count");
+				context.cc->mov(count, asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT));
+				context.cc->add(count, step);
+				context.cc->mov(asmjit::x86::qword_ptr(counter_ptr, OFFSET_INT), count);
+
+				asmjit::x86::Gp condition = cc.newInt64("condition");
+				cc.mov(condition, count);
+				cc.sub(condition, to);
+				cc.imul(condition, step);
+
+				cc.cmp(condition, 0);
+				cc.jge(analysis.jump_labels[jump_target]);
+
+				asmjit::x86::Gp iterator_ptr = get_variant_ptr(context, iterator_addr);
+				cc.mov(asmjit::x86::qword_ptr(iterator_ptr, OFFSET_INT), count);
+
+				incr = 6;
 			} break;
 
 #define JIT_OPCODE_TYPE_ADJUST(m_v_type, m_c_type)                    \
@@ -1623,6 +1704,24 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 					print_line("Created label for ITERATE target: ", jump_target);
 				}
 				incr = 5;
+			} break;
+
+			case GDScriptFunction::OPCODE_ITERATE_BEGIN_RANGE: {
+				int jump_target = context.gdscript->_code_ptr[ip + 6];
+				if (!analysis.jump_labels.has(jump_target)) {
+					analysis.jump_labels[jump_target] = context.cc->newLabel();
+					print_line("Created label for ITERATE target: ", jump_target);
+				}
+				incr = 7;
+			} break;
+
+			case GDScriptFunction::OPCODE_ITERATE_RANGE: {
+				int jump_target = context.gdscript->_code_ptr[ip + 5];
+				if (!analysis.jump_labels.has(jump_target)) {
+					analysis.jump_labels[jump_target] = context.cc->newLabel();
+					print_line("Created label for ITERATE target: ", jump_target);
+				}
+				incr = 6;
 			} break;
 
 			case GDScriptFunction::OPCODE_TYPE_ADJUST_BOOL:
