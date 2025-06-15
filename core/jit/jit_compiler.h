@@ -110,7 +110,6 @@ public:
 	asmjit::JitRuntime *get_runtime() { return &runtime; }
 
 	void *compile_function(const GDScriptFunction *gdscript);
-	void print_function_info(const GDScriptFunction *gdscript);
 	void release_function(void *func_ptr);
 
 	JitCompiler();
