@@ -45,25 +45,6 @@ void get_keyed(const Variant *base, const Variant *key, Variant *result, bool *v
 void set_keyed(Variant *base, const Variant *key, const Variant *value, bool *valid) {
 	base->set(*key, *value, valid);
 }
-void set_named(Variant &base, const StringName &name, const Variant *value, bool &valid) {
-	base.set_named(name, *value, valid);
-}
-void get_named(const Variant &base, const StringName &name, Variant *result, bool &valid) {
-	*result = base.get_named(name, valid);
-}
-
-bool iterate_array_step(Variant *counter, const Variant *container, Variant *iterator) {
-	const Array *array = VariantInternal::get_array(container);
-	int64_t *idx = VariantInternal::get_int(counter);
-	(*idx)++;
-
-	if (*idx >= array->size()) {
-		return false;
-	} else {
-		*iterator = array->get(*idx);
-		return true;
-	}
-}
 }
 
 JitCompiler *JitCompiler::singleton = nullptr;
@@ -471,8 +452,11 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				cc.mov(asmjit::x86::byte_ptr(context.bool_ptr), 1);
 
 				asmjit::InvokeNode *set_invoke;
-				cc.invoke(&set_invoke, &set_named,
-						asmjit::FuncSignature::build<void, Variant &, const StringName &, const Variant *, bool &>());
+				cc.invoke(&set_invoke,
+						static_cast<void (*)(Variant *, const StringName &, const Variant &, bool &)>([](Variant *base, const StringName &name, const Variant &value, bool &valid) {
+							base->set_named(name, value, valid);
+						}),
+						asmjit::FuncSignature::build<void, Variant *, const StringName &, const Variant &, bool &>());
 				set_invoke->setArg(0, base_ptr);
 				set_invoke->setArg(1, &gdscript->_global_names_ptr[name_idx]);
 				set_invoke->setArg(2, value_ptr);
@@ -525,8 +509,11 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				cc.mov(asmjit::x86::byte_ptr(context.bool_ptr), 1);
 
 				asmjit::InvokeNode *get_invoke;
-				cc.invoke(&get_invoke, &get_named,
-						asmjit::FuncSignature::build<void, const Variant &, const StringName &, Variant *, bool &>());
+				cc.invoke(&get_invoke,
+						static_cast<void (*)(const Variant *, const StringName &, Variant *, bool &)>([](const Variant *base, const StringName &name, Variant *result, bool &valid) {
+							*result = base->get_named(name, valid);
+						}),
+						asmjit::FuncSignature::build<void, const Variant *, const StringName &, Variant *, bool &>());
 				get_invoke->setArg(0, base_ptr);
 				get_invoke->setArg(1, &gdscript->_global_names_ptr[name_idx]);
 				get_invoke->setArg(2, value_ptr);
@@ -723,7 +710,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr += 4;
 			} break;
 
-			case GDScriptFunction::OPCODE_CAST_TO_SCRIPT: { //need testing
+			case GDScriptFunction::OPCODE_CAST_TO_SCRIPT: {
 				int src_addr = gdscript->_code_ptr[ip + 1];
 				int dst_addr = gdscript->_code_ptr[ip + 2];
 				int to_type = gdscript->_code_ptr[ip + 3];
@@ -1069,7 +1056,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 			} break;
 
 			case GDScriptFunction::OPCODE_CALL_METHOD_BIND:
-			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_RET: { //need testing
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_RET: {
 				int instr_arg_count = gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				int base_addr = gdscript->_code_ptr[ip - 1];
