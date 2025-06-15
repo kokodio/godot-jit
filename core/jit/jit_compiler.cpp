@@ -471,6 +471,56 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 4;
 			} break;
 
+			case GDScriptFunction::OPCODE_SET_STATIC_VARIABLE: {
+				int value_addr = gdscript->_code_ptr[ip + 1];
+				int _class = gdscript->_code_ptr[ip + 2];
+				int idx = gdscript->_code_ptr[ip + 3];
+
+				asmjit::x86::Gp value_ptr = get_variant_ptr(context, value_addr);
+				asmjit::x86::Gp class_ptr = get_variant_ptr(context, _class);
+
+				asmjit::InvokeNode *set_static_invoke;
+				cc.invoke(&set_static_invoke,
+						static_cast<void (*)(Variant *, Variant *, int)>(
+								[](Variant *value, Variant *class_p, int index) {
+									GDScript *script = Object::cast_to<GDScript>(class_p->operator Object *());
+
+									script->static_variables.write[index] = *value;
+								}),
+						asmjit::FuncSignature::build<void, Variant *, Variant *, int>());
+
+				set_static_invoke->setArg(0, value_ptr);
+				set_static_invoke->setArg(1, class_ptr);
+				set_static_invoke->setArg(2, idx);
+
+				incr = 4;
+			} break;
+
+			case GDScriptFunction::OPCODE_GET_STATIC_VARIABLE: {
+				int dst_addr = gdscript->_code_ptr[ip + 1];
+				int _class = gdscript->_code_ptr[ip + 2];
+				int idx = gdscript->_code_ptr[ip + 3];
+
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
+				asmjit::x86::Gp class_ptr = get_variant_ptr(context, _class);
+
+				asmjit::InvokeNode *get_static_invoke;
+				cc.invoke(&get_static_invoke,
+						static_cast<void (*)(Variant *, Variant *, int)>(
+								[](Variant *dst, Variant *class_p, int index) {
+									GDScript *script = Object::cast_to<GDScript>(class_p->operator Object *());
+
+									*dst = script->static_variables[index];
+								}),
+						asmjit::FuncSignature::build<void, Variant *, Variant *, int>());
+
+				get_static_invoke->setArg(0, dst_ptr);
+				get_static_invoke->setArg(1, class_ptr);
+				get_static_invoke->setArg(2, idx);
+
+				incr = 4;
+			} break;
+
 			case GDScriptFunction::OPCODE_ASSIGN: {
 				int dst_addr = gdscript->_code_ptr[ip + 1];
 				int src_addr = gdscript->_code_ptr[ip + 2];
@@ -1402,6 +1452,11 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 			} break;
 			case GDScriptFunction::OPCODE_GET_NAMED_VALIDATED:
 			case GDScriptFunction::OPCODE_SET_NAMED_VALIDATED: {
+				incr = 4;
+			} break;
+
+			case GDScriptFunction::OPCODE_SET_STATIC_VARIABLE:
+			case GDScriptFunction::OPCODE_GET_STATIC_VARIABLE: {
 				incr = 4;
 			} break;
 

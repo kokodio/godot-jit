@@ -81,6 +81,7 @@ class GDScript : public Script {
 		}
 	};
 
+	friend class JitCompiler;
 	friend class GDScriptInstance;
 	friend class GDScriptFunction;
 	friend class GDScriptAnalyzer;
