@@ -33,7 +33,6 @@
 #include "core/config/engine.h"
 #include "core/string/print_string.h"
 #include "core/variant/variant.h"
-#include <chrono>
 
 extern "C" {
 void call_variant_method(Variant &base, const StringName &method_name, const Variant **args, int argc, Variant &result, Callable::CallError &error) {
@@ -123,7 +122,7 @@ void JitCompiler::print_address_info(const GDScriptFunction *gdscript, int encod
 }
 
 void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
-	auto start = std::chrono::high_resolution_clock::now();
+	auto start = OS::get_singleton()->get_ticks_usec();
 
 	asmjit::CodeHolder code;
 	asmjit::StringLogger stringLogger;
@@ -553,6 +552,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
+				print_line("Not implemented: OPCODE_ASSIGN_TRUE");
+
 				//idk where its used
 				incr = 2;
 			} break;
@@ -561,6 +562,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
+
+				print_line("Not implemented: OPCODE_ASSIGN_FALSE");
 
 				//idk where its used
 
@@ -591,6 +594,52 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				construct_invoke->setArg(4, call_error_ptr);
 
 				incr += 4;
+			} break;
+
+			case GDScriptFunction::OPCODE_CAST_TO_SCRIPT: { //need testing
+				int src_addr = gdscript->_code_ptr[ip + 1];
+				int dst_addr = gdscript->_code_ptr[ip + 2];
+				int to_type = gdscript->_code_ptr[ip + 3];
+
+				asmjit::x86::Gp src_ptr = get_variant_ptr(context, src_addr);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
+				asmjit::x86::Gp script_ptr = get_variant_ptr(context, to_type);
+
+				asmjit::InvokeNode *cast_invoke;
+				cc.invoke(&cast_invoke,
+						static_cast<void (*)(const Variant *, Variant *, const Variant *)>(
+								[](const Variant *src, Variant *dst, const Variant *script) {
+									Script *base_type = Object::cast_to<Script>(script->operator Object *());
+									bool valid = false;
+
+									if (src->get_type() != Variant::NIL && src->operator Object *() != nullptr) {
+										ScriptInstance *scr_inst = src->operator Object *()->get_script_instance();
+
+										if (scr_inst) {
+											Script *src_type = src->operator Object *()->get_script_instance()->get_script().ptr();
+
+											while (src_type) {
+												if (src_type == base_type) {
+													valid = true;
+													break;
+												}
+												src_type = src_type->get_base_script().ptr();
+											}
+										}
+									}
+
+									if (valid) {
+										*dst = *src;
+									} else {
+										*dst = Variant();
+									}
+								}),
+						asmjit::FuncSignature::build<void, const Variant *, Variant *, const Variant *>());
+				cast_invoke->setArg(0, src_ptr);
+				cast_invoke->setArg(1, dst_ptr);
+				cast_invoke->setArg(2, script_ptr);
+
+				incr = 4;
 			} break;
 
 			case GDScriptFunction::OPCODE_CONSTRUCT: {
@@ -842,10 +891,63 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 3;
 			} break;
 
-			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN: {
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND:
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_RET: { //need testing
 				int instr_arg_count = gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				int base_addr = gdscript->_code_ptr[ip - 1];
+				int dst_addr = gdscript->_code_ptr[ip];
+				int argc = gdscript->_code_ptr[ip + 1];
+				int method_idx = gdscript->_code_ptr[ip + 2];
+
+				MethodBind *method = gdscript->_methods_ptr[method_idx];
+
+				asmjit::x86::Gp base_ptr = get_variant_ptr(context, base_addr);
+				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
+				asmjit::x86::Gp call_error_ptr = get_call_error_ptr(context);
+
+				asmjit::x86::Gp base_obj = context.cc->newIntPtr("base_obj");
+				context.cc->mov(base_obj, asmjit::x86::ptr(base_ptr, offsetof(Variant, _data) + offsetof(Variant::ObjData, obj)));
+
+				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - instr_arg_count + 1);
+
+				if (opcode == GDScriptFunction::OPCODE_CALL_METHOD_BIND) {
+					asmjit::InvokeNode *call_invoke;
+					context.cc->invoke(&call_invoke,
+							static_cast<void (*)(MethodBind *, Object *, const Variant **, int, Callable::CallError &)>(
+									[](MethodBind *method, Object *obj, const Variant **args, int argc, Callable::CallError &err) -> void {
+										method->call(obj, args, argc, err);
+									}),
+							asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, int, Callable::CallError &>());
+					call_invoke->setArg(0, method);
+					call_invoke->setArg(1, base_obj);
+					call_invoke->setArg(2, args_array);
+					call_invoke->setArg(3, argc);
+					call_invoke->setArg(4, call_error_ptr);
+				} else {
+					asmjit::InvokeNode *call_invoke;
+					context.cc->invoke(&call_invoke,
+							static_cast<void (*)(MethodBind *, Object *, const Variant **, int, Callable::CallError &, Variant *dst)>(
+									[](MethodBind *method, Object *obj, const Variant **args, int argc, Callable::CallError &err, Variant *dst) -> void {
+										Variant temp_ret = method->call(obj, args, argc, err);
+										*dst = temp_ret;
+									}),
+							asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, int, Callable::CallError &, Variant *>());
+					call_invoke->setArg(0, method);
+					call_invoke->setArg(1, base_obj);
+					call_invoke->setArg(2, args_array);
+					call_invoke->setArg(3, argc);
+					call_invoke->setArg(4, call_error_ptr);
+					call_invoke->setArg(5, dst_ptr);
+				}
+
+				incr = 3;
+			} break;
+
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN: {
+				int instr_arg_count = gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				int base_addr = gdscript->_code_ptr[ip - 1]; // -argc?
 				int dst_addr = gdscript->_code_ptr[ip];
 				int argc = gdscript->_code_ptr[ip + 1];
 				int method_idx = gdscript->_code_ptr[ip + 2];
@@ -882,27 +984,38 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr += 2;
 			} break;
 
-			case GDScriptFunction::OPCODE_JUMP_IF: {
+			case GDScriptFunction::OPCODE_JUMP_IF:
+			case GDScriptFunction::OPCODE_JUMP_IF_NOT:
+			case GDScriptFunction::OPCODE_JUMP_IF_SHARED: {
 				int condition_addr = gdscript->_code_ptr[ip + 1];
 				int target = gdscript->_code_ptr[ip + 2];
 
-				asmjit::x86::Gp condition = cc.newInt64("index_val");
-				extract_int_from_variant(context, condition, condition_addr);
+				asmjit::x86::Gp condition_ptr = get_variant_ptr(context, condition_addr);
+				asmjit::x86::Gp boolean_result = cc.newInt8("boolean_result");
 
-				cc.test(condition, condition);
-				cc.jnz(analysis.jump_labels[target]);
+				asmjit::InvokeNode *booleanize_invoke;
+				if (opcode == GDScriptFunction::OPCODE_JUMP_IF_SHARED) {
+					cc.invoke(&booleanize_invoke,
+							static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
+								return v->is_shared();
+							}),
+							asmjit::FuncSignature::build<bool, const Variant *>());
+				} else {
+					cc.invoke(&booleanize_invoke,
+							static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
+								return v->booleanize();
+							}),
+							asmjit::FuncSignature::build<bool, const Variant *>());
+				}
+				booleanize_invoke->setArg(0, condition_ptr);
+				booleanize_invoke->setRet(0, boolean_result);
 
-				incr = 3;
-			} break;
-			case GDScriptFunction::OPCODE_JUMP_IF_NOT: {
-				int condition_addr = gdscript->_code_ptr[ip + 1];
-				int target = gdscript->_code_ptr[ip + 2];
-
-				asmjit::x86::Gp condition = cc.newInt64("index_val");
-				extract_int_from_variant(context, condition, condition_addr);
-
-				cc.test(condition, condition);
-				cc.jz(analysis.jump_labels[target]);
+				cc.test(boolean_result, boolean_result);
+				if (opcode == GDScriptFunction::OPCODE_JUMP_IF_NOT) {
+					cc.jz(analysis.jump_labels[target]);
+				} else {
+					cc.jnz(analysis.jump_labels[target]);
+				}
 
 				incr = 3;
 			} break;
@@ -1069,7 +1182,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 5;
 			} break;
 
-			case GDScriptFunction::OPCODE_ITERATE_ARRAY: {
+			case GDScriptFunction::OPCODE_ITERATE_ARRAY: { //fix?
 				int counter_addr = gdscript->_code_ptr[ip + 1];
 				int container_addr = gdscript->_code_ptr[ip + 2];
 				int iterator_addr = gdscript->_code_ptr[ip + 3];
@@ -1236,9 +1349,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 		return nullptr;
 	}
 
-	auto end = std::chrono::high_resolution_clock::now();
-	std::chrono::duration<double, std::micro> duration = end - start;
-	print_line("Compile time: ", duration.count());
+	auto end = OS::get_singleton()->get_ticks_usec() - start;
+	print_line("Compile time: ", end);
 	return func_ptr;
 }
 
@@ -1475,6 +1587,9 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				incr = 4;
 				break;
 			}
+			case GDScriptFunction::OPCODE_CAST_TO_SCRIPT: {
+				incr = 4;
+			} break;
 			case GDScriptFunction::OPCODE_CONSTRUCT: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
@@ -1520,6 +1635,13 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				analysis.uses_error = true;
 				incr = 3;
 			} break;
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND:
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_RET: {
+				int instr_arg_count = context.gdscript->_code_ptr[++ip];
+				ip += instr_arg_count;
+				analysis.uses_error = true;
+				incr = 3;
+			} break;
 			case GDScriptFunction::OPCODE_CALL_BUILTIN_TYPE_VALIDATED: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
@@ -1538,15 +1660,9 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				incr = 2;
 			} break;
 
-			case GDScriptFunction::OPCODE_JUMP_IF: {
-				int target = context.gdscript->_code_ptr[ip + 2];
-				if (!analysis.jump_labels.has(target)) {
-					analysis.jump_labels[target] = context.cc->newLabel();
-				}
-				incr = 3;
-			} break;
-
-			case GDScriptFunction::OPCODE_JUMP_IF_NOT: {
+			case GDScriptFunction::OPCODE_JUMP_IF:
+			case GDScriptFunction::OPCODE_JUMP_IF_NOT:
+			case GDScriptFunction::OPCODE_JUMP_IF_SHARED: {
 				int target = context.gdscript->_code_ptr[ip + 2];
 				if (!analysis.jump_labels.has(target)) {
 					analysis.jump_labels[target] = context.cc->newLabel();
