@@ -1762,8 +1762,8 @@ void JitCompiler::handle_int_operation(const OpInfo operation, JitContext &ctx, 
 
 // todo
 void JitCompiler::handle_float_operation(const OpInfo operation, JitContext &ctx, int left_addr, int right_addr, int result_addr) {
-	asmjit::x86::Xmm left_val = ctx.cc->newXmmSd();
-	asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
+	asmjit::x86::Vec left_val = ctx.cc->newXmmSd();
+	asmjit::x86::Vec right_val = ctx.cc->newXmmSd();
 	asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
 
 	if (operation.left_type == Variant::INT && operation.right_type == Variant::FLOAT) {
@@ -1847,10 +1847,10 @@ void JitCompiler::handle_float_operation(const OpInfo operation, JitContext &ctx
 
 //todo
 void JitCompiler::handle_vector2_operation(const OpInfo operation, JitContext &context, int left_addr, int right_addr, int result_addr) {
-	asmjit::x86::Xmm left_x = context.cc->newXmmSs("left_x");
-	asmjit::x86::Xmm left_y = context.cc->newXmmSs("left_y");
-	asmjit::x86::Xmm right_x = context.cc->newXmmSs("right_x");
-	asmjit::x86::Xmm right_y = context.cc->newXmmSs("right_y");
+	asmjit::x86::Vec left_x = context.cc->newXmmSs("left_x");
+	asmjit::x86::Vec left_y = context.cc->newXmmSs("left_y");
+	asmjit::x86::Vec right_x = context.cc->newXmmSs("right_x");
+	asmjit::x86::Vec right_y = context.cc->newXmmSs("right_y");
 
 	asmjit::x86::Gp left_ptr = get_variant_ptr(context, left_addr);
 	asmjit::x86::Gp right_ptr = get_variant_ptr(context, right_addr);
@@ -2209,7 +2209,7 @@ void JitCompiler::extract_type_from_variant(JitContext &context, asmjit::x86::Gp
 	context.cc->mov(result_reg, asmjit::x86::dword_ptr(variant_ptr, 0));
 }
 
-void JitCompiler::extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address) {
+void JitCompiler::extract_float_from_variant(JitContext &context, asmjit::x86::Vec &result_reg, int address) {
 	int address_type, address_index;
 	decode_address(address, address_type, address_index);
 
@@ -2218,7 +2218,7 @@ void JitCompiler::extract_float_from_variant(JitContext &context, asmjit::x86::X
 	context.cc->movsd(result_reg, asmjit::x86::qword_ptr(variant_ptr, OFFSET_FLOAT));
 }
 
-void JitCompiler::store_float_to_variant(JitContext &context, asmjit::x86::Xmm &value, int address) {
+void JitCompiler::store_float_to_variant(JitContext &context, asmjit::x86::Vec &value, int address) {
 	int address_type, address_index;
 	decode_address(address, address_type, address_index);
 
@@ -2228,7 +2228,7 @@ void JitCompiler::store_float_to_variant(JitContext &context, asmjit::x86::Xmm &
 	context.cc->movsd(asmjit::x86::qword_ptr(variant_ptr, OFFSET_FLOAT), value);
 }
 
-void JitCompiler::store_vector2_to_variant(JitContext &context, asmjit::x86::Xmm &x_reg, asmjit::x86::Xmm &y_reg, int address) {
+void JitCompiler::store_vector2_to_variant(JitContext &context, asmjit::x86::Vec &x_reg, asmjit::x86::Vec &y_reg, int address) {
 	asmjit::x86::Gp variant_ptr = get_variant_ptr(context, address);
 
 	context.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::VECTOR2);
@@ -2237,7 +2237,7 @@ void JitCompiler::store_vector2_to_variant(JitContext &context, asmjit::x86::Xmm
 	context.cc->movss(asmjit::x86::dword_ptr(variant_ptr, OFFSET_VECTOR2_Y), y_reg);
 }
 
-void JitCompiler::convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Xmm &float_reg) {
+void JitCompiler::convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Vec &float_reg) {
 	context.cc->cvtsi2sd(float_reg, int_reg);
 }
 

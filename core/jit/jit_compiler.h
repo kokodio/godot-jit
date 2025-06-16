@@ -83,13 +83,13 @@ private:
 	void handle_vector2_operation(const OpInfo operation, JitContext &context, int left_addr, int right_addr, int result_addr);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
 	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &value, int address);
-	void extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address);
+	void extract_float_from_variant(JitContext &context, asmjit::x86::Vec &result_reg, int address);
 	void extract_type_from_variant(JitContext &context, asmjit::x86::Gp &result_reg, int address);
 	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void store_int_to_variant(JitContext &context, int value, int address);
-	void store_float_to_variant(JitContext &context, asmjit::x86::Xmm &value, int address);
-	void store_vector2_to_variant(JitContext &context, asmjit::x86::Xmm &x_reg, asmjit::x86::Xmm &y_reg, int address);
-	void convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Xmm &float_reg);
+	void store_float_to_variant(JitContext &context, asmjit::x86::Vec &value, int address);
+	void store_vector2_to_variant(JitContext &context, asmjit::x86::Vec &x_reg, asmjit::x86::Vec &y_reg, int address);
+	void convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Vec &float_reg);
 
 	void cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr);
 

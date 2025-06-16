@@ -227,15 +227,12 @@ if env["builtin_asmjit"]:
     
     thirdparty_asmjit_sources = [thirdparty_asmjit_dir + file for file in thirdparty_asmjit_sources]
 
-    env_thirdparty.Prepend(CPPEXTPATH=[thirdparty_asmjit_dir + "src"])
-    env.Prepend(CPPEXTPATH=[thirdparty_asmjit_dir + "src"])
-    
-    env_thirdparty.Append(CPPDEFINES=["ASMJIT_STATIC"])
-    env.Append(CPPDEFINES=["ASMJIT_STATIC"])
-    
-    env_thirdparty.Prepend(CPPEXTPATH=[thirdparty_asmjit_dir])
-    env.Prepend(CPPEXTPATH=[thirdparty_asmjit_dir])
+    env_thirdparty.Prepend(CPPEXTPATH=[thirdparty_asmjit_dir, thirdparty_asmjit_dir + "src"])
+    env.Prepend(CPPEXTPATH=[thirdparty_asmjit_dir, thirdparty_asmjit_dir + "src"])
 
+    env_thirdparty.Append(CPPDEFINES=["ASMJIT_STATIC", "ASMJIT_NO_DEPRECATED"])
+    env.Append(CPPDEFINES=["ASMJIT_STATIC", "ASMJIT_NO_DEPRECATED"])
+    
     env_thirdparty.add_source_files(thirdparty_obj, thirdparty_asmjit_sources)
 
 
