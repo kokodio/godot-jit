@@ -138,7 +138,6 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 	asmjit::x86::Gp result_ptr = cc.newIntPtr("result_ptr");
 	asmjit::x86::Gp args_ptr = cc.newIntPtr("args_ptr");
-	asmjit::x86::Gp variant_addreses_ptr = cc.newIntPtr("stack_ptr");
 	asmjit::x86::Gp stack_ptr = cc.newIntPtr("stack_ptr");
 	asmjit::x86::Gp members_ptr = cc.newIntPtr("members_ptr");
 
@@ -565,9 +564,9 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				cc.invoke(&set_static_invoke,
 						static_cast<void (*)(Variant *, Variant *, int)>(
 								[](Variant *value, Variant *class_p, int index) {
-									GDScript *script = Object::cast_to<GDScript>(class_p->operator Object *());
+									GDScript *script_p = Object::cast_to<GDScript>(class_p->operator Object *());
 
-									script->static_variables.write[index] = *value;
+									script_p->static_variables.write[index] = *value;
 								}),
 						asmjit::FuncSignature::build<void, Variant *, Variant *, int>());
 
@@ -596,9 +595,9 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				cc.invoke(&get_static_invoke,
 						static_cast<void (*)(Variant *, Variant *, int)>(
 								[](Variant *dst, Variant *class_p, int index) {
-									GDScript *script = Object::cast_to<GDScript>(class_p->operator Object *());
+									GDScript *script_p = Object::cast_to<GDScript>(class_p->operator Object *());
 
-									*dst = script->static_variables[index];
+									*dst = script_p->static_variables[index];
 								}),
 						asmjit::FuncSignature::build<void, Variant *, Variant *, int>());
 
@@ -683,7 +682,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int src_addr = gdscript->_code_ptr[ip + 2];
 				Variant::Type target_type = (Variant::Type)gdscript->_code_ptr[ip + 3];
 
-				asmjit::x86::Gp src_ptr = get_variant_ptr(context, src_addr);
+				//asmjit::x86::Gp src_ptr = get_variant_ptr(context, src_addr);
 				asmjit::x86::Gp dst_ptr = get_variant_ptr(context, dst_addr);
 				asmjit::x86::Gp arg_ptr = get_variant_ptr(context, src_addr);
 
@@ -832,10 +831,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::InvokeNode *construct_invoke;
 				cc.invoke(&construct_invoke,
 						static_cast<void (*)(Variant *, Variant **, int)>(
-								[](Variant *dst, Variant **args, int argc) {
+								[](Variant *dst, Variant **args, int argcount) {
 									Array array;
-									array.resize(argc);
-									for (int i = 0; i < argc; i++) {
+									array.resize(argcount);
+									for (int i = 0; i < argcount; i++) {
 										array[i] = *args[i];
 									}
 									*dst = Variant();
@@ -873,10 +872,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::InvokeNode *construct_invoke;
 				cc.invoke(&construct_invoke,
 						static_cast<void (*)(Variant *, Variant **, int, Variant *, int, const StringName *)>(
-								[](Variant *dst, Variant **args, int argc, Variant *script_type, int builtin, const StringName *native) {
+								[](Variant *dst, Variant **args, int argcount, Variant *script_type, int builtin, const StringName *native) {
 									Array array;
-									array.resize(argc);
-									for (int i = 0; i < argc; i++) {
+									array.resize(argcount);
+									for (int i = 0; i < argcount; i++) {
 										array[i] = *args[i];
 									}
 									*dst = Variant();
@@ -1080,8 +1079,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					asmjit::InvokeNode *call_invoke;
 					context.cc->invoke(&call_invoke,
 							static_cast<void (*)(MethodBind *, Object *, const Variant **, int, Callable::CallError &)>(
-									[](MethodBind *method, Object *obj, const Variant **args, int argc, Callable::CallError &err) -> void {
-										method->call(obj, args, argc, err);
+									[](MethodBind *method_p, Object *obj, const Variant **args, int argcount, Callable::CallError &err) -> void {
+										method_p->call(obj, args, argcount, err);
 									}),
 							asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, int, Callable::CallError &>());
 					call_invoke->setArg(0, method);
@@ -1093,8 +1092,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					asmjit::InvokeNode *call_invoke;
 					context.cc->invoke(&call_invoke,
 							static_cast<void (*)(MethodBind *, Object *, const Variant **, int, Callable::CallError &, Variant *dst)>(
-									[](MethodBind *method, Object *obj, const Variant **args, int argc, Callable::CallError &err, Variant *dst) -> void {
-										Variant temp_ret = method->call(obj, args, argc, err);
+									[](MethodBind *method_p, Object *obj, const Variant **args, int argcount, Callable::CallError &err, Variant *dst) -> void {
+										Variant temp_ret = method_p->call(obj, args, argcount, err);
 										*dst = temp_ret;
 									}),
 							asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, int, Callable::CallError &, Variant *>());
@@ -1135,8 +1134,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::InvokeNode *method_invoke;
 				context.cc->invoke(&method_invoke,
 						static_cast<void (*)(MethodBind *, Object *, const Variant **, Variant *)>(
-								[](MethodBind *method, Object *obj, const Variant **args, Variant *ret) {
-									method->validated_call(obj, args, ret);
+								[](MethodBind *method_p, Object *obj, const Variant **args, Variant *ret) {
+									method_p->validated_call(obj, args, ret);
 								}),
 						asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, Variant *>());
 				method_invoke->setArg(0, method);
@@ -1714,9 +1713,12 @@ void JitCompiler::handle_float_operation(String &operation_name, JitContext &ctx
 
 		store_float_to_variant(ctx, left_val, result_addr);
 
-	} else if (operation_name.begins_with("EQUAL_FLOAT") || operation_name.begins_with("NOT_EQUAL_FLOAT") ||
-			operation_name.begins_with("LESS_FLOAT") || operation_name.begins_with("GREATER_FLOAT") ||
-			operation_name.contains("EQUAL_") && (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT"))) {
+	} else if ( // fix
+			operation_name.begins_with("EQUAL_FLOAT") ||
+			operation_name.begins_with("NOT_EQUAL_FLOAT") ||
+			operation_name.begins_with("LESS_FLOAT") ||
+			operation_name.begins_with("GREATER_FLOAT") ||
+			(operation_name.contains("EQUAL_") && (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT")))) {
 		asmjit::x86::Xmm left_val = ctx.cc->newXmmSd();
 		asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
 
