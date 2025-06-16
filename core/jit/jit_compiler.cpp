@@ -95,6 +95,28 @@ JitCompiler::JitCompiler() {
 	register_op(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT);
 
 	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::FLOAT);
+	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::INT);
+	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::VECTOR2);
+
+	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::FLOAT);
+	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::INT);
+	register_op(Variant::OP_ADD, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::VECTOR2);
+
+	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::FLOAT);
+	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::INT);
+	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::VECTOR2);
+
+	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::FLOAT);
+	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::INT);
+	register_op(Variant::OP_DIVIDE, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::VECTOR2);
 
 	singleton = this;
 }
@@ -1137,8 +1159,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				incr = 3;
 			} break;
-
-			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN: {
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN:
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_NO_RETURN: {
 				int instr_arg_count = gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				int base_addr = gdscript->_code_ptr[ip - 1]; // -argc?
@@ -1157,12 +1179,22 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				asmjit::x86::Gp args_array = prepare_args_array(context, argc, ip - instr_arg_count + 1);
 
 				asmjit::InvokeNode *method_invoke;
-				context.cc->invoke(&method_invoke,
-						static_cast<void (*)(MethodBind *, Object *, const Variant **, Variant *)>(
-								[](MethodBind *method_p, Object *obj, const Variant **args, Variant *ret) {
-									method_p->validated_call(obj, args, ret);
-								}),
-						asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, Variant *>());
+				if (opcode == GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN) {
+					context.cc->invoke(&method_invoke,
+							static_cast<void (*)(MethodBind *, Object *, const Variant **, Variant *)>(
+									[](MethodBind *method_p, Object *obj, const Variant **args, Variant *ret) {
+										method_p->validated_call(obj, args, ret);
+									}),
+							asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, Variant *>());
+				} else {
+					context.cc->invoke(&method_invoke,
+							static_cast<void (*)(MethodBind *, Object *, const Variant **, Variant *)>(
+									[](MethodBind *method_p, Object *obj, const Variant **args, Variant *ret) {
+										VariantInternal::initialize(ret, Variant::NIL);
+										method_p->validated_call(obj, args, nullptr);
+									}),
+							asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, Variant *>());
+				}
 				method_invoke->setArg(0, method);
 				method_invoke->setArg(1, base_obj);
 				method_invoke->setArg(2, args_array);
@@ -1429,7 +1461,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				incr = 5;
 			} break;
 
-			case GDScriptFunction::OPCODE_ITERATE_ARRAY: { //fix?
+			case GDScriptFunction::OPCODE_ITERATE_ARRAY: {
 				int counter_addr = gdscript->_code_ptr[ip + 1];
 				int container_addr = gdscript->_code_ptr[ip + 2];
 				int iterator_addr = gdscript->_code_ptr[ip + 3];
@@ -1813,23 +1845,65 @@ void JitCompiler::handle_float_operation(const OpInfo operation, JitContext &ctx
 	}
 }
 
+//todo
 void JitCompiler::handle_vector2_operation(const OpInfo operation, JitContext &context, int left_addr, int right_addr, int result_addr) {
 	asmjit::x86::Xmm left_x = context.cc->newXmmSs("left_x");
 	asmjit::x86::Xmm left_y = context.cc->newXmmSs("left_y");
-	asmjit::x86::Xmm right_val = context.cc->newXmmSs("right_val");
+	asmjit::x86::Xmm right_x = context.cc->newXmmSs("right_x");
+	asmjit::x86::Xmm right_y = context.cc->newXmmSs("right_y");
 
 	asmjit::x86::Gp left_ptr = get_variant_ptr(context, left_addr);
 	asmjit::x86::Gp right_ptr = get_variant_ptr(context, right_addr);
 
-	if (operation.left_type == Variant::VECTOR2 && operation.right_type == Variant::FLOAT) {
+	if (operation.left_type == Variant::VECTOR2) {
 		context.cc->movss(left_x, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_X));
 		context.cc->movss(left_y, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_Y));
+	} else if (operation.left_type == Variant::FLOAT) {
+		context.cc->movsd(left_x, asmjit::x86::qword_ptr(left_ptr, OFFSET_FLOAT));
+		context.cc->cvtsd2ss(left_x, left_x);
+		context.cc->movss(left_y, left_x);
+	} else if (operation.left_type == Variant::INT) {
+		context.cc->cvtsi2ss(left_x, asmjit::x86::qword_ptr(left_ptr, OFFSET_INT));
+		context.cc->movss(left_y, left_x);
+	}
 
-		context.cc->movsd(right_val, asmjit::x86::qword_ptr(right_ptr, OFFSET_FLOAT));
-		context.cc->cvtsd2ss(right_val, right_val);
+	if (operation.right_type == Variant::VECTOR2) {
+		context.cc->movss(right_x, asmjit::x86::dword_ptr(right_ptr, OFFSET_VECTOR2_X));
+		context.cc->movss(right_y, asmjit::x86::dword_ptr(right_ptr, OFFSET_VECTOR2_Y));
+	} else if (operation.right_type == Variant::FLOAT) {
+		context.cc->movsd(right_x, asmjit::x86::qword_ptr(right_ptr, OFFSET_FLOAT));
+		context.cc->cvtsd2ss(right_x, right_x);
+		context.cc->movss(right_y, right_x);
+	} else if (operation.right_type == Variant::INT) {
+		context.cc->cvtsi2ss(right_x, asmjit::x86::qword_ptr(right_ptr, OFFSET_INT));
+		context.cc->movss(right_y, right_x);
+	}
 
-		context.cc->mulss(left_x, right_val);
-		context.cc->mulss(left_y, right_val);
+	switch (operation.op) {
+		case Variant::OP_ADD: {
+			context.cc->addss(left_x, right_x);
+			context.cc->addss(left_y, right_y);
+			break;
+		}
+		case Variant::OP_SUBTRACT: {
+			context.cc->subss(left_x, right_x);
+			context.cc->subss(left_y, right_y);
+			break;
+		}
+		case Variant::OP_MULTIPLY: {
+			context.cc->mulss(left_x, right_x);
+			context.cc->mulss(left_y, right_y);
+			break;
+		}
+		case Variant::OP_DIVIDE: {
+			context.cc->divss(left_x, right_x);
+			context.cc->divss(left_y, right_y);
+			break;
+		}
+		default: {
+			print_line("Unsupported Vector2 operation: ", operation.op);
+			return;
+		}
 	}
 
 	store_vector2_to_variant(context, left_x, left_y, result_addr);
@@ -1983,7 +2057,8 @@ FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
 				ip += instr_arg_count;
 				incr = 3;
 			} break;
-			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN: {
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN:
+			case GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_NO_RETURN: {
 				int instr_arg_count = context.gdscript->_code_ptr[++ip];
 				ip += instr_arg_count;
 				incr = 3;
