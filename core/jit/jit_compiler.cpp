@@ -48,30 +48,30 @@ void set_keyed(Variant *base, const Variant *key, const Variant *value, bool *va
 }
 
 JitCompiler *JitCompiler::singleton = nullptr;
-HashMap<Variant::ValidatedOperatorEvaluator, String> JitCompiler::op_map;
+HashMap<intptr_t, String> JitCompiler::op_map;
 
 JitCompiler::JitCompiler() {
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::INT, Variant::INT)] = "ADD_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::INT, Variant::INT)] = "SUBTRACT_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::INT, Variant::INT)] = "MULTIPLY_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::INT, Variant::INT)] = "EQUAL_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::INT, Variant::INT)] = "NOT_EQUAL_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::INT, Variant::INT)] = "LESS_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::INT, Variant::INT)] = "LESS_EQUAL_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::INT, Variant::INT)] = "GREATER_INT_INT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::INT)] = "GREATER_EQUAL_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::INT, Variant::INT)] = "ADD_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::INT, Variant::INT)] = "SUBTRACT_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::INT, Variant::INT)] = "MULTIPLY_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::INT, Variant::INT)] = "EQUAL_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::INT, Variant::INT)] = "NOT_EQUAL_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::INT, Variant::INT)] = "LESS_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::INT, Variant::INT)] = "LESS_EQUAL_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::INT, Variant::INT)] = "GREATER_INT_INT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::INT)] = "GREATER_EQUAL_INT_INT";
 
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::FLOAT, Variant::FLOAT)] = "ADD_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::FLOAT)] = "SUBTRACT_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::FLOAT)] = "MULTIPLY_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_DIVIDE, Variant::FLOAT, Variant::FLOAT)] = "DIVIDE_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::FLOAT, Variant::FLOAT)] = "ADD_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::FLOAT)] = "SUBTRACT_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::FLOAT)] = "MULTIPLY_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_DIVIDE, Variant::FLOAT, Variant::FLOAT)] = "DIVIDE_FLOAT_FLOAT";
 
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "EQUAL_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "NOT_EQUAL_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::FLOAT, Variant::FLOAT)] = "LESS_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "LESS_EQUAL_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::FLOAT, Variant::FLOAT)] = "GREATER_FLOAT_FLOAT";
-	op_map[Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "GREATER_EQUAL_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "EQUAL_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "NOT_EQUAL_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::FLOAT, Variant::FLOAT)] = "LESS_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "LESS_EQUAL_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::FLOAT, Variant::FLOAT)] = "GREATER_FLOAT_FLOAT";
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "GREATER_EQUAL_FLOAT_FLOAT";
 
 	singleton = this;
 }
@@ -269,7 +269,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				Variant::ValidatedOperatorEvaluator op_func = gdscript->operator_funcs[operation_idx];
 
-				String operation_name = get_operator_name_from_function(op_func);
+				String operation_name = get_operator_name_from_function((intptr_t)op_func);
 
 				if (operation_name != "UNKNOWN_OPERATION") {
 					if (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT")) {
@@ -1769,7 +1769,7 @@ void JitCompiler::release_function(void *func_ptr) {
 	runtime.release(func_ptr);
 }
 
-String JitCompiler::get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func) {
+String JitCompiler::get_operator_name_from_function(intptr_t op_func) {
 	if (op_map.has(op_func)) {
 		return op_map[op_func];
 	}

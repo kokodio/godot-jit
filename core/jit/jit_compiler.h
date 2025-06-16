@@ -62,7 +62,7 @@ class JitCompiler : public Object {
 	GDCLASS(JitCompiler, Object);
 
 private:
-	static HashMap<Variant::ValidatedOperatorEvaluator, String> op_map;
+	static HashMap<intptr_t, String> op_map;
 	static JitCompiler *singleton;
 	asmjit::JitRuntime runtime;
 
@@ -72,7 +72,7 @@ private:
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
-	String get_operator_name_from_function(Variant::ValidatedOperatorEvaluator op_func);
+	String get_operator_name_from_function(intptr_t op_func);
 	void handle_int_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
 	void handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
