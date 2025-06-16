@@ -38,6 +38,12 @@
 #include <asmjit/core.h>
 #include <asmjit/x86.h>
 
+struct OpInfo {
+	Variant::Operator op;
+	Variant::Type left_type;
+	Variant::Type right_type;
+};
+
 struct JitContext {
 	const GDScriptFunction *gdscript;
 	asmjit::x86::Gp args_ptr;
@@ -62,7 +68,7 @@ class JitCompiler : public Object {
 	GDCLASS(JitCompiler, Object);
 
 private:
-	static HashMap<intptr_t, String> op_map;
+	static HashMap<intptr_t, OpInfo> op_map;
 	static JitCompiler *singleton;
 	asmjit::JitRuntime runtime;
 
@@ -72,10 +78,9 @@ private:
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
-	String get_operator_name_from_function(intptr_t op_func);
-	void handle_int_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
-	void handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr);
-	void handle_vector2_operation(const String &operation_name, JitContext &context, int left_addr, int right_addr, int result_addr);
+	void handle_int_operation(const OpInfo operation, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
+	void handle_float_operation(const OpInfo operation, JitContext &ctx, int left_addr, int right_addr, int result_addr);
+	void handle_vector2_operation(const OpInfo operation, JitContext &context, int left_addr, int right_addr, int result_addr);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
 	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address);
@@ -92,6 +97,9 @@ private:
 	asmjit::x86::Gp get_bool_ptr(JitContext &context, bool value);
 	asmjit::x86::Gp prepare_args_array(JitContext &context, int argc, int ip_base);
 	asmjit::x86::Gp get_variant_ptr(JitContext &context, int address);
+
+	void register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type);
+	OpInfo get_operator_info(intptr_t op_func);
 
 public:
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);

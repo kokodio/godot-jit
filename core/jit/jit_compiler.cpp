@@ -48,54 +48,53 @@ void set_keyed(Variant *base, const Variant *key, const Variant *value, bool *va
 }
 
 JitCompiler *JitCompiler::singleton = nullptr;
-HashMap<intptr_t, String> JitCompiler::op_map;
+HashMap<intptr_t, OpInfo> JitCompiler::op_map;
 
 JitCompiler::JitCompiler() {
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::INT, Variant::INT)] = "ADD_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::INT, Variant::INT)] = "SUBTRACT_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::INT, Variant::INT)] = "MULTIPLY_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::INT, Variant::INT)] = "EQUAL_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::INT, Variant::INT)] = "NOT_EQUAL_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::INT, Variant::INT)] = "LESS_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::INT, Variant::INT)] = "LESS_EQUAL_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::INT, Variant::INT)] = "GREATER_INT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::INT)] = "GREATER_EQUAL_INT_INT";
+	register_op(Variant::OP_ADD, Variant::INT, Variant::INT);
+	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::INT);
+	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::INT);
+	register_op(Variant::OP_EQUAL, Variant::INT, Variant::INT);
+	register_op(Variant::OP_NOT_EQUAL, Variant::INT, Variant::INT);
+	register_op(Variant::OP_LESS, Variant::INT, Variant::INT);
+	register_op(Variant::OP_LESS_EQUAL, Variant::INT, Variant::INT);
+	register_op(Variant::OP_GREATER, Variant::INT, Variant::INT);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::INT);
 
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::INT, Variant::FLOAT)] = "ADD_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::FLOAT, Variant::INT)] = "ADD_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::INT, Variant::FLOAT)] = "SUBTRACT_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::INT)] = "SUBTRACT_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::INT, Variant::FLOAT)] = "MULTIPLY_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::INT)] = "MULTIPLY_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_DIVIDE, Variant::INT, Variant::FLOAT)] = "DIVIDE_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_DIVIDE, Variant::FLOAT, Variant::INT)] = "DIVIDE_FLOAT_INT";
+	register_op(Variant::OP_ADD, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_DIVIDE, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::INT);
 
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_ADD, Variant::FLOAT, Variant::FLOAT)] = "ADD_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::FLOAT)] = "SUBTRACT_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::FLOAT)] = "MULTIPLY_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_DIVIDE, Variant::FLOAT, Variant::FLOAT)] = "DIVIDE_FLOAT_FLOAT";
+	register_op(Variant::OP_EQUAL, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_EQUAL, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_NOT_EQUAL, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_LESS, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_LESS, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_LESS_EQUAL, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_GREATER, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_GREATER, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::INT);
 
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "EQUAL_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "NOT_EQUAL_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::FLOAT, Variant::FLOAT)] = "LESS_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "LESS_EQUAL_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::FLOAT, Variant::FLOAT)] = "GREATER_FLOAT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT)] = "GREATER_EQUAL_FLOAT_FLOAT";
+	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_EQUAL, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_LESS, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_GREATER, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT);
 
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::INT, Variant::FLOAT)] = "EQUAL_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_EQUAL, Variant::FLOAT, Variant::INT)] = "EQUAL_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::INT, Variant::FLOAT)] = "NOT_EQUAL_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::INT)] = "NOT_EQUAL_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::INT, Variant::FLOAT)] = "LESS_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS, Variant::FLOAT, Variant::INT)] = "LESS_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::INT, Variant::FLOAT)] = "LESS_EQUAL_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::INT)] = "LESS_EQUAL_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::INT, Variant::FLOAT)] = "GREATER_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER, Variant::FLOAT, Variant::INT)] = "GREATER_FLOAT_INT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::FLOAT)] = "GREATER_EQUAL_INT_FLOAT";
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::INT)] = "GREATER_EQUAL_FLOAT_INT";
-
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::FLOAT)] = "MULTIPLY_VECTOR2_FLOAT";
+	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::FLOAT);
 
 	singleton = this;
 }
@@ -111,6 +110,10 @@ JitCompiler *JitCompiler::get_singleton() {
 void JitCompiler::decode_address(int encoded_address, int &address_type, int &address_index) {
 	address_type = (encoded_address & GDScriptFunction::ADDR_TYPE_MASK) >> GDScriptFunction::ADDR_BITS;
 	address_index = encoded_address & GDScriptFunction::ADDR_MASK;
+}
+
+void JitCompiler::register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type) {
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(op, left_type, right_type)] = OpInfo{ op, left_type, right_type };
 }
 
 String JitCompiler::get_address_type_name(int address_type) {
@@ -292,24 +295,22 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				Variant::ValidatedOperatorEvaluator op_func = gdscript->operator_funcs[operation_idx];
 
-				String operation_name = get_operator_name_from_function((intptr_t)op_func);
+				OpInfo operation = get_operator_info((intptr_t)op_func);
 
-				if (operation_name != "UNKNOWN_OPERATION") {
-					if (operation_name.contains("VECTOR2")) {
-						handle_vector2_operation(operation_name, context, left_addr, right_addr, result_addr);
-					} else if (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT")) {
-						handle_float_operation(operation_name, context, left_addr, right_addr, result_addr);
-					} else {
-						asmjit::x86::Gp left_val = context.cc->newInt64();
-						extract_int_from_variant(context, left_val, left_addr);
-						asmjit::x86::Gp right_val = context.cc->newInt64();
-						extract_int_from_variant(context, right_val, right_addr);
-						asmjit::x86::Gp result_val = cc.newInt64();
+				if (operation.left_type == Variant::VECTOR2 || operation.right_type == Variant::VECTOR2) {
+					handle_vector2_operation(operation, context, left_addr, right_addr, result_addr);
+				} else if (operation.left_type == Variant::FLOAT || operation.right_type == Variant::FLOAT) {
+					handle_float_operation(operation, context, left_addr, right_addr, result_addr);
+				} else if (operation.left_type == Variant::INT && operation.right_type == Variant::INT) {
+					asmjit::x86::Gp left_val = context.cc->newInt64();
+					extract_int_from_variant(context, left_val, left_addr);
+					asmjit::x86::Gp right_val = context.cc->newInt64();
+					extract_int_from_variant(context, right_val, right_addr);
+					asmjit::x86::Gp result_val = cc.newInt64();
 
-						handle_int_operation(operation_name, context, left_val, right_val, result_val);
+					handle_int_operation(operation, context, left_val, right_val, result_val);
 
-						store_reg_to_variant(context, result_val, result_addr);
-					}
+					store_reg_to_variant(context, result_val, result_addr);
 				} else {
 					asmjit::x86::Gp left_ptr = get_variant_ptr(context, left_addr);
 					asmjit::x86::Gp right_ptr = get_variant_ptr(context, right_addr);
@@ -322,8 +323,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 					op_invoke->setArg(2, op_ptr);
 				}
 
-				print_line(ip, "OPERATOR_VALIDATED: ", operation_name);
-				print_line("    Function index: ", operation_idx);
+				print_line(ip, "OPERATOR_VALIDATED: ", operation.op != Variant::OP_MAX ? Variant::get_operator_name(operation.op) : "UNKNOWN",
+						", left_type=", Variant::get_type_name(operation.left_type),
+						", right_type=", Variant::get_type_name(operation.right_type),
+						", function index: ", operation_idx);
 
 				print_line("    Left operand:");
 				print_address_info(gdscript, left_addr);
@@ -1652,131 +1655,165 @@ asmjit::x86::Gp JitCompiler::get_variant_ptr(JitContext &context, int address) {
 	return variant_ptr;
 }
 
-void JitCompiler::handle_int_operation(String &operation_name, JitContext &ctx, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem) {
-	if (operation_name == "SUBTRACT_INT_INT") {
-		ctx.cc->sub(left_val, right_val);
-		ctx.cc->mov(result_mem, left_val);
-	} else if (operation_name == "ADD_INT_INT") {
-		ctx.cc->add(left_val, right_val);
-		ctx.cc->mov(result_mem, left_val);
-	} else if (operation_name == "MULTIPLY_INT_INT") {
-		ctx.cc->imul(left_val, right_val);
-		ctx.cc->mov(result_mem, left_val);
-	} else if (operation_name == "EQUAL_INT_INT") {
-		ctx.cc->cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = ctx.cc->newInt64();
-		ctx.cc->sete(result_reg.r8());
-		ctx.cc->movzx(result_reg, result_reg.r8());
-		ctx.cc->mov(result_mem, result_reg);
-	} else if (operation_name == "LESS_INT_INT") {
-		ctx.cc->cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = ctx.cc->newInt64();
-		ctx.cc->setl(result_reg.r8());
-		ctx.cc->movzx(result_reg, result_reg.r8());
-		ctx.cc->mov(result_mem, result_reg);
-	} else if (operation_name == "GREATER_INT_INT") {
-		ctx.cc->cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = ctx.cc->newInt64();
-		ctx.cc->setg(result_reg.r8());
-		ctx.cc->movzx(result_reg, result_reg.r8());
-		ctx.cc->mov(result_mem, result_reg);
-	} else if (operation_name == "LESS_EQUAL_INT_INT") {
-		ctx.cc->cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = ctx.cc->newInt64();
-		ctx.cc->setle(result_reg.r8());
-		ctx.cc->movzx(result_reg, result_reg.r8());
-		ctx.cc->mov(result_mem, result_reg);
-	} else if (operation_name == "GREATER_EQUAL_INT_INT") {
-		ctx.cc->cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = ctx.cc->newInt64();
-		ctx.cc->setge(result_reg.r8());
-		ctx.cc->movzx(result_reg, result_reg.r8());
-		ctx.cc->mov(result_mem, result_reg);
-	} else if (operation_name == "NOT_EQUAL_INT_INT") {
-		ctx.cc->cmp(left_val, right_val);
-		asmjit::x86::Gp result_reg = ctx.cc->newInt64();
-		ctx.cc->setne(result_reg.r8());
-		ctx.cc->movzx(result_reg, result_reg.r8());
-		ctx.cc->mov(result_mem, result_reg);
+// todo
+void JitCompiler::handle_int_operation(const OpInfo operation, JitContext &ctx, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem) {
+	switch (operation.op) {
+		case Variant::OP_ADD: {
+			ctx.cc->add(left_val, right_val);
+			ctx.cc->mov(result_mem, left_val);
+			return;
+		}
+		case Variant::OP_SUBTRACT: {
+			ctx.cc->sub(left_val, right_val);
+			ctx.cc->mov(result_mem, left_val);
+			return;
+		}
+		case Variant::OP_MULTIPLY: {
+			ctx.cc->imul(left_val, right_val);
+			ctx.cc->mov(result_mem, left_val);
+			return;
+		}
+		case Variant::OP_EQUAL: {
+			ctx.cc->cmp(left_val, right_val);
+			asmjit::x86::Gp result_reg = ctx.cc->newInt64();
+			ctx.cc->sete(result_reg.r8());
+			ctx.cc->movzx(result_reg, result_reg.r8());
+			ctx.cc->mov(result_mem, result_reg);
+			return;
+		}
+		case Variant::OP_LESS: {
+			ctx.cc->cmp(left_val, right_val);
+			asmjit::x86::Gp result_reg = ctx.cc->newInt64();
+			ctx.cc->setl(result_reg.r8());
+			ctx.cc->movzx(result_reg, result_reg.r8());
+			ctx.cc->mov(result_mem, result_reg);
+			return;
+		}
+		case Variant::OP_GREATER: {
+			ctx.cc->cmp(left_val, right_val);
+			asmjit::x86::Gp result_reg = ctx.cc->newInt64();
+			ctx.cc->setg(result_reg.r8());
+			ctx.cc->movzx(result_reg, result_reg.r8());
+			ctx.cc->mov(result_mem, result_reg);
+			return;
+		}
+		case Variant::OP_LESS_EQUAL: {
+			ctx.cc->cmp(left_val, right_val);
+			asmjit::x86::Gp result_reg = ctx.cc->newInt64();
+			ctx.cc->setle(result_reg.r8());
+			ctx.cc->movzx(result_reg, result_reg.r8());
+			ctx.cc->mov(result_mem, result_reg);
+			return;
+		}
+		case Variant::OP_GREATER_EQUAL: {
+			ctx.cc->cmp(left_val, right_val);
+			asmjit::x86::Gp result_reg = ctx.cc->newInt64();
+			ctx.cc->setge(result_reg.r8());
+			ctx.cc->movzx(result_reg, result_reg.r8());
+			ctx.cc->mov(result_mem, result_reg);
+			return;
+		}
+		case Variant::OP_NOT_EQUAL: {
+			ctx.cc->cmp(left_val, right_val);
+			asmjit::x86::Gp result_reg = ctx.cc->newInt64();
+			ctx.cc->setne(result_reg.r8());
+			ctx.cc->movzx(result_reg, result_reg.r8());
+			ctx.cc->mov(result_mem, result_reg);
+			return;
+		}
+		default: {
+			print_error("Unsupported operation for int operation: " + String::num(operation.op));
+			return;
+		}
 	}
 }
 
-void JitCompiler::handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr) {
-	if (operation_name.begins_with("ADD_") || operation_name.begins_with("SUBTRACT_") ||
-			operation_name.begins_with("MULTIPLY_") || operation_name.begins_with("DIVIDE_")) {
-		asmjit::x86::Xmm left_val = ctx.cc->newXmmSd();
-		asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
-		asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
+// todo
+void JitCompiler::handle_float_operation(const OpInfo operation, JitContext &ctx, int left_addr, int right_addr, int result_addr) {
+	asmjit::x86::Xmm left_val = ctx.cc->newXmmSd();
+	asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
+	asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
 
-		if (operation_name.contains("INT_FLOAT")) {
-			extract_int_from_variant(ctx, int_val, left_addr);
-			convert_int_to_float(ctx, int_val, left_val);
-			extract_float_from_variant(ctx, right_val, right_addr);
-		} else if (operation_name.contains("FLOAT_INT")) {
-			extract_float_from_variant(ctx, left_val, left_addr);
-			extract_int_from_variant(ctx, int_val, right_addr);
-			convert_int_to_float(ctx, int_val, right_val);
-		} else {
-			extract_float_from_variant(ctx, left_val, left_addr);
-			extract_float_from_variant(ctx, right_val, right_addr);
-		}
+	if (operation.left_type == Variant::INT && operation.right_type == Variant::FLOAT) {
+		extract_int_from_variant(ctx, int_val, left_addr);
+		convert_int_to_float(ctx, int_val, left_val);
+		extract_float_from_variant(ctx, right_val, right_addr);
+	} else if (operation.left_type == Variant::FLOAT && operation.right_type == Variant::INT) {
+		extract_float_from_variant(ctx, left_val, left_addr);
+		extract_int_from_variant(ctx, int_val, right_addr);
+		convert_int_to_float(ctx, int_val, right_val);
+	} else {
+		extract_float_from_variant(ctx, left_val, left_addr);
+		extract_float_from_variant(ctx, right_val, right_addr);
+	}
 
-		if (operation_name.begins_with("ADD_")) {
+	switch (operation.op) {
+		case Variant::OP_ADD: {
 			ctx.cc->addsd(left_val, right_val);
-		} else if (operation_name.begins_with("SUBTRACT_")) {
+			store_float_to_variant(ctx, left_val, result_addr);
+		} break;
+		case Variant::OP_SUBTRACT: {
 			ctx.cc->subsd(left_val, right_val);
-		} else if (operation_name.begins_with("MULTIPLY_")) {
+			store_float_to_variant(ctx, left_val, result_addr);
+		} break;
+		case Variant::OP_MULTIPLY: {
 			ctx.cc->mulsd(left_val, right_val);
-		} else if (operation_name.begins_with("DIVIDE_")) {
+			store_float_to_variant(ctx, left_val, result_addr);
+		} break;
+		case Variant::OP_DIVIDE: {
 			ctx.cc->divsd(left_val, right_val);
-		}
-
-		store_float_to_variant(ctx, left_val, result_addr);
-
-	} else if (
-			operation_name.begins_with("EQUAL_") ||
-			operation_name.begins_with("NOT_EQUAL_") ||
-			operation_name.begins_with("LESS_") ||
-			operation_name.begins_with("GREATER_")) {
-		asmjit::x86::Xmm left_val = ctx.cc->newXmmSd();
-		asmjit::x86::Xmm right_val = ctx.cc->newXmmSd();
-		asmjit::x86::Gp int_val = ctx.cc->newInt64("int_val");
-
-		if (operation_name.contains("INT_FLOAT")) {
-			extract_int_from_variant(ctx, int_val, left_addr);
-			convert_int_to_float(ctx, int_val, left_val);
-			extract_float_from_variant(ctx, right_val, right_addr);
-		} else if (operation_name.contains("FLOAT_INT")) {
-			extract_float_from_variant(ctx, left_val, left_addr);
-			extract_int_from_variant(ctx, int_val, right_addr);
-			convert_int_to_float(ctx, int_val, right_val);
-		} else {
-			extract_float_from_variant(ctx, left_val, left_addr);
-			extract_float_from_variant(ctx, right_val, right_addr);
-		}
-
-		ctx.cc->comisd(left_val, right_val);
-
-		asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
-		ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
-
-		if (operation_name.begins_with("EQUAL_")) {
+			store_float_to_variant(ctx, left_val, result_addr);
+		} break;
+		case Variant::OP_EQUAL: {
+			ctx.cc->comisd(left_val, right_val);
+			asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
+			ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
 			ctx.cc->sete(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
-		} else if (operation_name.begins_with("NOT_EQUAL_")) {
+			return;
+		}
+		case Variant::OP_NOT_EQUAL: {
+			ctx.cc->comisd(left_val, right_val);
+			asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
+			ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
 			ctx.cc->setne(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
-		} else if (operation_name.begins_with("LESS_EQUAL_")) {
-			ctx.cc->setbe(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
-		} else if (operation_name.begins_with("LESS_")) {
+			return;
+		}
+		case Variant::OP_LESS: {
+			ctx.cc->comisd(left_val, right_val);
+			asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
+			ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
 			ctx.cc->setb(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
-		} else if (operation_name.begins_with("GREATER_EQUAL_")) {
-			ctx.cc->setae(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
-		} else if (operation_name.begins_with("GREATER_")) {
+			return;
+		}
+		case Variant::OP_GREATER: {
+			ctx.cc->comisd(left_val, right_val);
+			asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
+			ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
 			ctx.cc->seta(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
+			return;
+		}
+		case Variant::OP_LESS_EQUAL: {
+			ctx.cc->comisd(left_val, right_val);
+			asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
+			ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
+			ctx.cc->setbe(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
+			return;
+		}
+		case Variant::OP_GREATER_EQUAL: {
+			ctx.cc->comisd(left_val, right_val);
+			asmjit::x86::Gp variant_ptr = get_variant_ptr(ctx, result_addr);
+			ctx.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::BOOL);
+			ctx.cc->setae(asmjit::x86::byte_ptr(variant_ptr, OFFSET_INT));
+			return;
+		}
+		default: {
+			print_error("Unsupported operation for float operation: " + String::num(operation.op));
+			return;
 		}
 	}
 }
 
-void JitCompiler::handle_vector2_operation(const String &operation_name, JitContext &context, int left_addr, int right_addr, int result_addr) {
+void JitCompiler::handle_vector2_operation(const OpInfo operation, JitContext &context, int left_addr, int right_addr, int result_addr) {
 	asmjit::x86::Xmm left_x = context.cc->newXmmSs("left_x");
 	asmjit::x86::Xmm left_y = context.cc->newXmmSs("left_y");
 	asmjit::x86::Xmm right_val = context.cc->newXmmSs("right_val");
@@ -1784,7 +1821,7 @@ void JitCompiler::handle_vector2_operation(const String &operation_name, JitCont
 	asmjit::x86::Gp left_ptr = get_variant_ptr(context, left_addr);
 	asmjit::x86::Gp right_ptr = get_variant_ptr(context, right_addr);
 
-	if (operation_name.contains("VECTOR2") && operation_name.contains("FLOAT")) {
+	if (operation.left_type == Variant::VECTOR2 && operation.right_type == Variant::FLOAT) {
 		context.cc->movss(left_x, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_X));
 		context.cc->movss(left_y, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_Y));
 
@@ -1806,12 +1843,12 @@ void JitCompiler::release_function(void *func_ptr) {
 	runtime.release(func_ptr);
 }
 
-String JitCompiler::get_operator_name_from_function(intptr_t op_func) {
+OpInfo JitCompiler::get_operator_info(intptr_t op_func) {
 	if (op_map.has(op_func)) {
 		return op_map[op_func];
 	}
 
-	return "UNKNOWN_OPERATION";
+	return OpInfo{ Variant::OP_MAX, Variant::VARIANT_MAX, Variant::VARIANT_MAX };
 }
 
 FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {
