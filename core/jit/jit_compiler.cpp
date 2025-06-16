@@ -95,6 +95,8 @@ JitCompiler::JitCompiler() {
 	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::FLOAT)] = "GREATER_EQUAL_INT_FLOAT";
 	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::INT)] = "GREATER_EQUAL_FLOAT_INT";
 
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::FLOAT)] = "MULTIPLY_VECTOR2_FLOAT";
+
 	singleton = this;
 }
 
@@ -293,7 +295,9 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				String operation_name = get_operator_name_from_function((intptr_t)op_func);
 
 				if (operation_name != "UNKNOWN_OPERATION") {
-					if (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT")) {
+					if (operation_name.contains("VECTOR2")) {
+						handle_vector2_operation(operation_name, context, left_addr, right_addr, result_addr);
+					} else if (operation_name.contains("FLOAT") || operation_name.contains("INT_FLOAT") || operation_name.contains("FLOAT_INT")) {
 						handle_float_operation(operation_name, context, left_addr, right_addr, result_addr);
 					} else {
 						asmjit::x86::Gp left_val = context.cc->newInt64();
@@ -1772,6 +1776,28 @@ void JitCompiler::handle_float_operation(String &operation_name, JitContext &ctx
 	}
 }
 
+void JitCompiler::handle_vector2_operation(const String &operation_name, JitContext &context, int left_addr, int right_addr, int result_addr) {
+	asmjit::x86::Xmm left_x = context.cc->newXmmSs("left_x");
+	asmjit::x86::Xmm left_y = context.cc->newXmmSs("left_y");
+	asmjit::x86::Xmm right_val = context.cc->newXmmSs("right_val");
+
+	asmjit::x86::Gp left_ptr = get_variant_ptr(context, left_addr);
+	asmjit::x86::Gp right_ptr = get_variant_ptr(context, right_addr);
+
+	if (operation_name.contains("VECTOR2") && operation_name.contains("FLOAT")) {
+		context.cc->movss(left_x, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_X));
+		context.cc->movss(left_y, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_Y));
+
+		context.cc->movsd(right_val, asmjit::x86::qword_ptr(right_ptr, OFFSET_FLOAT));
+		context.cc->cvtsd2ss(right_val, right_val);
+
+		context.cc->mulss(left_x, right_val);
+		context.cc->mulss(left_y, right_val);
+	}
+
+	store_vector2_to_variant(context, left_x, left_y, result_addr);
+}
+
 void JitCompiler::release_function(void *func_ptr) {
 	if (!func_ptr) {
 		return;
@@ -2088,6 +2114,15 @@ void JitCompiler::store_float_to_variant(JitContext &context, asmjit::x86::Xmm &
 
 	context.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::FLOAT);
 	context.cc->movsd(asmjit::x86::qword_ptr(variant_ptr, OFFSET_FLOAT), value);
+}
+
+void JitCompiler::store_vector2_to_variant(JitContext &context, asmjit::x86::Xmm &x_reg, asmjit::x86::Xmm &y_reg, int address) {
+	asmjit::x86::Gp variant_ptr = get_variant_ptr(context, address);
+
+	context.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::VECTOR2);
+
+	context.cc->movss(asmjit::x86::dword_ptr(variant_ptr, OFFSET_VECTOR2_X), x_reg);
+	context.cc->movss(asmjit::x86::dword_ptr(variant_ptr, OFFSET_VECTOR2_Y), y_reg);
 }
 
 void JitCompiler::convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Xmm &float_reg) {

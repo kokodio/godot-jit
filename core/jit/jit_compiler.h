@@ -75,6 +75,7 @@ private:
 	String get_operator_name_from_function(intptr_t op_func);
 	void handle_int_operation(String &operation_name, JitContext &context, asmjit::x86::Gp &left_val, asmjit::x86::Gp &right_val, asmjit::x86::Gp &result_mem);
 	void handle_float_operation(String &operation_name, JitContext &ctx, int left_addr, int right_addr, int result_addr);
+	void handle_vector2_operation(const String &operation_name, JitContext &context, int left_addr, int right_addr, int result_addr);
 	void copy_variant(JitContext &context, asmjit::x86::Gp &dst_ptr, asmjit::x86::Gp &src_ptr);
 	void extract_int_from_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void extract_float_from_variant(JitContext &context, asmjit::x86::Xmm &result_reg, int address);
@@ -82,6 +83,7 @@ private:
 	void store_reg_to_variant(JitContext &context, asmjit::x86::Gp &value, int address);
 	void store_int_to_variant(JitContext &context, int value, int address);
 	void store_float_to_variant(JitContext &context, asmjit::x86::Xmm &value, int address);
+	void store_vector2_to_variant(JitContext &context, asmjit::x86::Xmm &x_reg, asmjit::x86::Xmm &y_reg, int address);
 	void convert_int_to_float(JitContext &context, asmjit::x86::Gp &int_reg, asmjit::x86::Xmm &float_reg);
 
 	void cast_and_store(JitContext &context, asmjit::x86::Gp &src_ptr, asmjit::x86::Gp &dst_ptr, Variant::Type expected_type, int return_addr);
@@ -103,6 +105,12 @@ public:
 
 	static constexpr int OFFSET_BOOL_IN_DATA = offsetof(decltype(Variant::_data), _bool);
 	static constexpr int OFFSET_BOOL = OFFSET_DATA + OFFSET_BOOL_IN_DATA;
+
+	static constexpr int OFFSET_MEM_IN_DATA = offsetof(decltype(Variant::_data), _mem);
+	static constexpr int OFFSET_MEM = OFFSET_DATA + OFFSET_MEM_IN_DATA;
+
+	static constexpr int OFFSET_VECTOR2_X = OFFSET_MEM + offsetof(Vector2, x);
+	static constexpr int OFFSET_VECTOR2_Y = OFFSET_MEM + offsetof(Vector2, y);
 
 	static constexpr int PTR_SIZE = sizeof(void *);
 
