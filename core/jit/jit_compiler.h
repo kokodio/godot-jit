@@ -104,7 +104,6 @@ private:
 	void store_int_to_variant(JitContext &ctx, int value, int address);
 	void store_float_to_variant(JitContext &ctx, Vec &value, int address);
 	void store_vector2_to_variant(JitContext &ctx, Vec &x_reg, Vec &y_reg, int address);
-	void convert_int_to_float(JitContext &ctx, Gp &int_reg, Vec &float_reg);
 
 	void cast_and_store(JitContext &ctx, Gp &src_ptr, Gp &dst_ptr, Variant::Type expected_type, int return_addr);
 
@@ -113,6 +112,7 @@ private:
 	Gp prepare_args_array(JitContext &ctx, int argc, int ip_base);
 	Gp get_variant_ptr(JitContext &ctx, int address);
 	Mem get_variant_mem(const JitContext &ctx, int address, int offset_field);
+	Mem get_variant_type_mem(const JitContext &ctx, int address);
 	Mem get_int_mem_ptr(JitContext &ctx, int address);
 
 	void register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type);
@@ -121,7 +121,8 @@ private:
 	static inline Mem mem_qword_ptr(const Gp &base, int disp = 0);
 	static inline Mem mem_dword_ptr(const Gp &base, int disp = 0);
 	static inline Mem mem_byte_ptr(const Gp &base, int disp = 0);
-	void gen_compare(JitContext &ctx, Gp &lhs, Mem &rhs, CondCode cc);
+	void gen_compare_int(JitContext &ctx, Gp &lhs, Mem &rhs, int result_addr, CondCode cc);
+	void gen_compare_float(JitContext &ctx, Vec &lhs, Vec &rhs, int result_addr, CondCode cc);
 
 public:
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
