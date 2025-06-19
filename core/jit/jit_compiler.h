@@ -52,6 +52,7 @@ using Gp = Arch::Gp;
 using Vec = Arch::Vec;
 using Mem = Arch::Mem;
 using Compiler = Arch::Compiler;
+using CondCode = Arch::CondCode;
 
 struct OpInfo {
 	Variant::Operator op;
@@ -87,30 +88,32 @@ private:
 	static JitCompiler *singleton;
 	asmjit::JitRuntime runtime;
 
-	FunctionAnalysis analyze_function(JitContext &context);
-	void initialize_context(JitContext &context, const FunctionAnalysis &analysis);
+	FunctionAnalysis analyze_function(JitContext &ctx);
+	void initialize_context(JitContext &ctx, const FunctionAnalysis &analysis);
 
 	void print_address_info(const GDScriptFunction *gdscript, int encoded_address);
 	void decode_address(int encoded_address, int &address_type, int &address_index);
 	String get_address_type_name(int address_type);
-	void handle_int_operation(const OpInfo operation, JitContext &context, Gp &left_val, Gp &right_val, Gp &result_mem);
+	void handle_int_operation(const OpInfo operation, JitContext &ctx, int left_addr, int right_addr, int result_addr);
 	void handle_float_operation(const OpInfo operation, JitContext &ctx, int left_addr, int right_addr, int result_addr);
-	void handle_vector2_operation(const OpInfo operation, JitContext &context, int left_addr, int right_addr, int result_addr);
-	void copy_variant(JitContext &context, Gp &dst_ptr, Gp &src_ptr);
-	void extract_int_from_variant(JitContext &context, Gp &value, int address);
-	void extract_float_from_variant(JitContext &context, Vec &result_reg, int address);
-	void extract_type_from_variant(JitContext &context, Gp &result_reg, int address);
-	void store_int_to_variant(JitContext &context, int value, int address);
-	void store_float_to_variant(JitContext &context, Vec &value, int address);
-	void store_vector2_to_variant(JitContext &context, Vec &x_reg, Vec &y_reg, int address);
-	void convert_int_to_float(JitContext &context, Gp &int_reg, Vec &float_reg);
+	void handle_vector2_operation(const OpInfo operation, JitContext &ctx, int left_addr, int right_addr, int result_addr);
+	void copy_variant(JitContext &ctx, Gp &dst_ptr, Gp &src_ptr);
+	Gp extract_int_from_variant(JitContext &ctx, int address);
+	void extract_float_from_variant(JitContext &ctx, Vec &result_reg, int address);
+	void extract_type_from_variant(JitContext &ctx, Gp &result_reg, int address);
+	void store_int_to_variant(JitContext &ctx, int value, int address);
+	void store_float_to_variant(JitContext &ctx, Vec &value, int address);
+	void store_vector2_to_variant(JitContext &ctx, Vec &x_reg, Vec &y_reg, int address);
+	void convert_int_to_float(JitContext &ctx, Gp &int_reg, Vec &float_reg);
 
-	void cast_and_store(JitContext &context, Gp &src_ptr, Gp &dst_ptr, Variant::Type expected_type, int return_addr);
+	void cast_and_store(JitContext &ctx, Gp &src_ptr, Gp &dst_ptr, Variant::Type expected_type, int return_addr);
 
-	Gp get_call_error_ptr(JitContext &context, bool reset = true);
-	Gp get_bool_ptr(JitContext &context, bool value);
-	Gp prepare_args_array(JitContext &context, int argc, int ip_base);
-	Gp get_variant_ptr(JitContext &context, int address);
+	Gp get_call_error_ptr(JitContext &ctx, bool reset = true);
+	Gp get_bool_ptr(JitContext &ctx, bool value);
+	Gp prepare_args_array(JitContext &ctx, int argc, int ip_base);
+	Gp get_variant_ptr(JitContext &ctx, int address);
+	Mem get_variant_mem(const JitContext &ctx, int address, int offset_field);
+	Mem get_int_mem_ptr(JitContext &ctx, int address);
 
 	void register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type);
 	OpInfo get_operator_info(intptr_t op_func);
@@ -118,6 +121,7 @@ private:
 	static inline Mem mem_qword_ptr(const Gp &base, int disp = 0);
 	static inline Mem mem_dword_ptr(const Gp &base, int disp = 0);
 	static inline Mem mem_byte_ptr(const Gp &base, int disp = 0);
+	void gen_compare(JitContext &ctx, Gp &lhs, Mem &rhs, CondCode cc);
 
 public:
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
