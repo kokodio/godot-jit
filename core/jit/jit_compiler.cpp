@@ -185,25 +185,20 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 	asmjit::FuncNode *funcNode = cc.addFunc(sig);
 
-	Gp result_ptr = cc.newIntPtr("result_ptr");
-	Gp args_ptr = cc.newIntPtr("args_ptr");
-	Gp stack_ptr = cc.newIntPtr("stack_ptr");
-	Gp members_ptr = cc.newIntPtr("members_ptr");
-
-	funcNode->setArg(0, result_ptr);
-	funcNode->setArg(1, args_ptr);
-	funcNode->setArg(2, stack_ptr);
-	funcNode->setArg(3, members_ptr);
-
 	JitContext context;
 	context.gdscript = gdscript;
-	context.args_ptr = args_ptr;
+	context.args_ptr = cc.newIntPtr("args_ptr");
 	context.cc = &cc;
-	context.result_ptr = result_ptr;
-	context.stack_ptr = stack_ptr;
-	context.members_ptr = members_ptr;
+	context.result_ptr = cc.newIntPtr("result_ptr");
+	context.stack_ptr = cc.newIntPtr("stack_ptr");
+	context.members_ptr = cc.newIntPtr("members_ptr");
 	context.constants_ptr = cc.newIntPtr("constants_ptr");
 	cc.mov(context.constants_ptr, gdscript->_constants_ptr);
+
+	funcNode->setArg(0, context.result_ptr);
+	funcNode->setArg(1, context.args_ptr);
+	funcNode->setArg(2, context.stack_ptr);
+	funcNode->setArg(3, context.members_ptr);
 
 	auto analysis = analyze_function(context);
 	initialize_context(context, analysis);
@@ -1246,12 +1241,35 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 			case GDScriptFunction::OPCODE_RETURN: {
 				int dst_addr = gdscript->_code_ptr[ip + 1];
 
-				Gp src_ptr = get_variant_ptr(context, dst_addr);
-				Gp dst_ptr = cc.newIntPtr("dst_addr");
+				int dst_type, dst_index;
+				decode_address(dst_addr, dst_type, dst_index);
 
-				cc.mov(dst_ptr, result_ptr);
+				//placeholder Todo stack type tracker to handle this better
+				//copy_variant also can benefit from this
+				if (dst_type == GDScriptFunction::ADDR_TYPE_CONSTANT && gdscript->_constants_ptr[dst_index].get_type() == gdscript->return_type.builtin_type) {
+					switch (gdscript->_constants_ptr[dst_index].get_type()) {
+						case Variant::INT: {
+							Gp tmp = cc.newInt64();
+							cc.mov(tmp, get_variant_mem(context, dst_addr, OFFSET_INT));
+							context.cc->mov(mem_dword_ptr(context.result_ptr, 0), (int)Variant::INT);
+							context.cc->mov(mem_qword_ptr(context.result_ptr, OFFSET_INT), tmp);
+						} break;
+						case Variant::FLOAT: {
+							Vec tmp = cc.newXmm();
+							cc.movsd(tmp, get_variant_mem(context, dst_addr, OFFSET_FLOAT));
+							context.cc->mov(mem_dword_ptr(context.result_ptr, 0), (int)Variant::FLOAT);
+							context.cc->movsd(mem_qword_ptr(context.result_ptr, OFFSET_FLOAT), tmp);
+						} break;
+						default: {
+							Gp src_ptr = get_variant_ptr(context, dst_addr);
+							copy_variant(context, context.result_ptr, src_ptr);
+						} break;
+					}
+				} else {
+					Gp src_ptr = get_variant_ptr(context, dst_addr);
+					copy_variant(context, context.result_ptr, src_ptr);
+				}
 
-				copy_variant(context, dst_ptr, src_ptr);
 				cc.ret();
 
 				print_line(ip, "RETURN");
@@ -1266,7 +1284,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				Gp src_ptr = get_variant_ptr(context, dst_addr);
 				Gp dst_ptr = cc.newIntPtr("dst_addr");
 
-				cc.mov(dst_ptr, result_ptr);
+				cc.mov(dst_ptr, context.result_ptr);
 
 				cast_and_store(context, src_ptr, dst_ptr, gdscript->return_type.builtin_type, dst_addr);
 				cc.ret();
@@ -1400,7 +1418,7 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				cc.cmp(condition, 0);
 				cc.jle(analysis.jump_labels[jump_target]);
-				
+
 				cc.mov(get_variant_type_mem(context, iterator_addr), (int)Variant::INT);
 				cc.mov(get_variant_mem(context, iterator_addr, OFFSET_INT), from);
 
@@ -1659,6 +1677,7 @@ Mem JitCompiler::get_variant_mem(const JitContext &ctx, int address, int offset_
 	int type, index;
 	decode_address(address, type, index);
 	int disp = index * sizeof(Variant) + offset_field;
+
 	if (type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
 		return mem_qword_ptr(ctx.constants_ptr, disp);
 	} else if (type == GDScriptFunction::ADDR_TYPE_STACK) {
@@ -1668,36 +1687,23 @@ Mem JitCompiler::get_variant_mem(const JitContext &ctx, int address, int offset_
 	}
 }
 
-Mem JitCompiler::get_variant_type_mem(const JitContext &ctx, int address) {
+Mem JitCompiler::get_variant_type_mem(const JitContext &ctx, int address, int offset) {
 	int type, index;
 	decode_address(address, type, index);
-	int disp = index * sizeof(Variant);
+	int disp = index * sizeof(Variant) + offset;
 
 	if (type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
-		return asmjit::x86::dword_ptr(ctx.constants_ptr, disp);
+		return mem_dword_ptr(ctx.constants_ptr, disp);
 	} else if (type == GDScriptFunction::ADDR_TYPE_STACK) {
-		return asmjit::x86::dword_ptr(ctx.stack_ptr, disp);
+		return mem_dword_ptr(ctx.stack_ptr, disp);
 	} else {
-		return asmjit::x86::dword_ptr(ctx.members_ptr, disp);
-	}
-}
-
-Mem JitCompiler::get_int_mem_ptr(JitContext &ctx, int address) {
-	int type, index;
-	decode_address(address, type, index);
-	int disp = index * sizeof(Variant) + OFFSET_INT;
-	if (type == GDScriptFunction::ADDR_TYPE_CONSTANT) {
-		return Arch::ptr(ctx.constants_ptr, disp);
-	} else if (type == GDScriptFunction::ADDR_TYPE_STACK) {
-		return Arch::ptr(ctx.stack_ptr, disp);
-	} else {
-		return Arch::ptr(ctx.members_ptr, disp);
+		return mem_dword_ptr(ctx.members_ptr, disp);
 	}
 }
 
 void JitCompiler::handle_int_operation(const OpInfo operation, JitContext &ctx, int left_addr, int right_addr, int result_addr) {
 	Gp left = extract_int_from_variant(ctx, left_addr);
-	Mem right = get_int_mem_ptr(ctx, right_addr);
+	Mem right = get_variant_mem(ctx, right_addr, OFFSET_INT);
 	Mem result_ptr = get_variant_mem(ctx, result_addr, OFFSET_INT);
 
 	switch (operation.op) {
@@ -1814,30 +1820,25 @@ void JitCompiler::handle_vector2_operation(const OpInfo operation, JitContext &c
 	Vec right_x = context.cc->newXmmSs("right_x");
 	Vec right_y = context.cc->newXmmSs("right_y");
 
-	Gp left_ptr = get_variant_ptr(context, left_addr);
-	Gp right_ptr = get_variant_ptr(context, right_addr);
-
 	if (operation.left_type == Variant::VECTOR2) {
-		context.cc->movss(left_x, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_X));
-		context.cc->movss(left_y, asmjit::x86::dword_ptr(left_ptr, OFFSET_VECTOR2_Y));
+		context.cc->movss(left_x, get_variant_type_mem(context, left_addr, OFFSET_VECTOR2_X));
+		context.cc->movss(left_y, get_variant_type_mem(context, left_addr, OFFSET_VECTOR2_Y));
 	} else if (operation.left_type == Variant::FLOAT) {
-		context.cc->movsd(left_x, asmjit::x86::qword_ptr(left_ptr, OFFSET_FLOAT));
-		context.cc->cvtsd2ss(left_x, left_x);
+		context.cc->cvtsd2ss(left_x, get_variant_mem(context, left_addr, OFFSET_FLOAT));
 		context.cc->movss(left_y, left_x);
 	} else if (operation.left_type == Variant::INT) {
-		context.cc->cvtsi2ss(left_x, asmjit::x86::qword_ptr(left_ptr, OFFSET_INT));
+		context.cc->cvtsi2ss(left_x, get_variant_mem(context, left_addr, OFFSET_INT));
 		context.cc->movss(left_y, left_x);
 	}
 
 	if (operation.right_type == Variant::VECTOR2) {
-		context.cc->movss(right_x, asmjit::x86::dword_ptr(right_ptr, OFFSET_VECTOR2_X));
-		context.cc->movss(right_y, asmjit::x86::dword_ptr(right_ptr, OFFSET_VECTOR2_Y));
+		context.cc->movss(right_x, get_variant_type_mem(context, right_addr, OFFSET_VECTOR2_X));
+		context.cc->movss(right_y, get_variant_type_mem(context, right_addr, OFFSET_VECTOR2_Y));
 	} else if (operation.right_type == Variant::FLOAT) {
-		context.cc->movsd(right_x, asmjit::x86::qword_ptr(right_ptr, OFFSET_FLOAT));
-		context.cc->cvtsd2ss(right_x, right_x);
+		context.cc->cvtsd2ss(right_x, get_variant_mem(context, right_addr, OFFSET_FLOAT));
 		context.cc->movss(right_y, right_x);
 	} else if (operation.right_type == Variant::INT) {
-		context.cc->cvtsi2ss(right_x, asmjit::x86::qword_ptr(right_ptr, OFFSET_INT));
+		context.cc->cvtsi2ss(right_x, get_variant_mem(context, right_addr, OFFSET_INT));
 		context.cc->movss(right_y, right_x);
 	}
 
@@ -2192,15 +2193,9 @@ void JitCompiler::store_float_to_variant(JitContext &ctx, Vec &value, int addres
 }
 
 void JitCompiler::store_vector2_to_variant(JitContext &context, Vec &x_reg, Vec &y_reg, int address) {
-	Gp variant_ptr = get_variant_ptr(context, address);
-	context.cc->mov(asmjit::x86::dword_ptr(variant_ptr, 0), (int)Variant::VECTOR2);
-	context.cc->movss(asmjit::x86::dword_ptr(variant_ptr, OFFSET_VECTOR2_X), x_reg);
-	context.cc->movss(asmjit::x86::dword_ptr(variant_ptr, OFFSET_VECTOR2_Y), y_reg);
-}
-
-void JitCompiler::store_int_to_variant(JitContext &context, int value, int address) {
-	Gp variant_ptr = get_variant_ptr(context, address);
-	context.cc->mov(asmjit::x86::qword_ptr(variant_ptr, OFFSET_INT), value);
+	context.cc->mov(get_variant_type_mem(context, address), (int)Variant::VECTOR2);
+	context.cc->movss(get_variant_type_mem(context, address, OFFSET_VECTOR2_X), x_reg);
+	context.cc->movss(get_variant_type_mem(context, address, OFFSET_VECTOR2_Y), y_reg);
 }
 
 Gp JitCompiler::get_call_error_ptr(JitContext &context, bool reset) {
@@ -2234,7 +2229,7 @@ Gp JitCompiler::prepare_args_array(JitContext &context, int argc, int ip_base) {
 			print_address_info(context.gdscript, arg_addr);
 		}
 	} else {
-		context.cc->mov(args_array, 0);
+		context.cc->xor_(args_array, args_array);
 	}
 
 	return args_array;

@@ -101,7 +101,6 @@ private:
 	Gp extract_int_from_variant(JitContext &ctx, int address);
 	void extract_float_from_variant(JitContext &ctx, Vec &result_reg, int address);
 	void extract_type_from_variant(JitContext &ctx, Gp &result_reg, int address);
-	void store_int_to_variant(JitContext &ctx, int value, int address);
 	void store_float_to_variant(JitContext &ctx, Vec &value, int address);
 	void store_vector2_to_variant(JitContext &ctx, Vec &x_reg, Vec &y_reg, int address);
 
@@ -112,8 +111,7 @@ private:
 	Gp prepare_args_array(JitContext &ctx, int argc, int ip_base);
 	Gp get_variant_ptr(JitContext &ctx, int address);
 	Mem get_variant_mem(const JitContext &ctx, int address, int offset_field);
-	Mem get_variant_type_mem(const JitContext &ctx, int address);
-	Mem get_int_mem_ptr(JitContext &ctx, int address);
+	Mem get_variant_type_mem(const JitContext &ctx, int address, int offset = 0);
 
 	void register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type);
 	OpInfo get_operator_info(intptr_t op_func);
