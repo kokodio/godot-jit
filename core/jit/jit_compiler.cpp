@@ -51,72 +51,72 @@ JitCompiler *JitCompiler::singleton = nullptr;
 HashMap<intptr_t, OpInfo> JitCompiler::op_map;
 
 JitCompiler::JitCompiler() {
-	register_op(Variant::OP_ADD, Variant::INT, Variant::INT);
-	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::INT);
-	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::INT);
-	register_op(Variant::OP_EQUAL, Variant::INT, Variant::INT);
-	register_op(Variant::OP_NOT_EQUAL, Variant::INT, Variant::INT);
-	register_op(Variant::OP_LESS, Variant::INT, Variant::INT);
-	register_op(Variant::OP_LESS_EQUAL, Variant::INT, Variant::INT);
-	register_op(Variant::OP_GREATER, Variant::INT, Variant::INT);
-	register_op(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::INT);
+	register_op(Variant::OP_ADD, Variant::INT, Variant::INT, Variant::INT);
+	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::INT, Variant::INT);
+	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::INT, Variant::INT);
+	register_op(Variant::OP_EQUAL, Variant::INT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_NOT_EQUAL, Variant::INT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_LESS, Variant::INT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_LESS_EQUAL, Variant::INT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_GREATER, Variant::INT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::INT, Variant::BOOL);
 
-	register_op(Variant::OP_ADD, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_DIVIDE, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_ADD, Variant::INT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::INT, Variant::FLOAT);
+	register_op(Variant::OP_DIVIDE, Variant::INT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::INT, Variant::FLOAT);
 
-	register_op(Variant::OP_EQUAL, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_EQUAL, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_NOT_EQUAL, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_LESS, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_LESS, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_LESS_EQUAL, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_GREATER, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_GREATER, Variant::FLOAT, Variant::INT);
-	register_op(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::FLOAT);
-	register_op(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::INT);
+	register_op(Variant::OP_EQUAL, Variant::INT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_EQUAL, Variant::FLOAT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_NOT_EQUAL, Variant::INT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_LESS, Variant::INT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_LESS, Variant::FLOAT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_LESS_EQUAL, Variant::INT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_GREATER, Variant::INT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_GREATER, Variant::FLOAT, Variant::INT, Variant::BOOL);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::INT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::INT, Variant::BOOL);
 
-	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_EQUAL, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_LESS, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_GREATER, Variant::FLOAT, Variant::FLOAT);
-	register_op(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::FLOAT, Variant::FLOAT);
+	register_op(Variant::OP_EQUAL, Variant::FLOAT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_NOT_EQUAL, Variant::FLOAT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_LESS, Variant::FLOAT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_LESS_EQUAL, Variant::FLOAT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_GREATER, Variant::FLOAT, Variant::FLOAT, Variant::BOOL);
+	register_op(Variant::OP_GREATER_EQUAL, Variant::FLOAT, Variant::FLOAT, Variant::BOOL);
 
-	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::FLOAT);
-	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::VECTOR2);
-	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::INT);
-	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::VECTOR2);
-	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_MULTIPLY, Variant::FLOAT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_MULTIPLY, Variant::INT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_MULTIPLY, Variant::VECTOR2, Variant::VECTOR2, Variant::VECTOR2);
 
-	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::FLOAT);
-	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::VECTOR2);
-	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::INT);
-	register_op(Variant::OP_ADD, Variant::INT, Variant::VECTOR2);
-	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_ADD, Variant::FLOAT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_ADD, Variant::INT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_ADD, Variant::VECTOR2, Variant::VECTOR2, Variant::VECTOR2);
 
-	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::FLOAT);
-	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::VECTOR2);
-	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::INT);
-	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::VECTOR2);
-	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_SUBTRACT, Variant::FLOAT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_SUBTRACT, Variant::INT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_SUBTRACT, Variant::VECTOR2, Variant::VECTOR2, Variant::VECTOR2);
 
-	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::FLOAT);
-	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::VECTOR2);
-	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::INT);
-	register_op(Variant::OP_DIVIDE, Variant::INT, Variant::VECTOR2);
-	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::FLOAT, Variant::VECTOR2);
+	register_op(Variant::OP_DIVIDE, Variant::FLOAT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::INT, Variant::VECTOR2);
+	register_op(Variant::OP_DIVIDE, Variant::INT, Variant::VECTOR2, Variant::VECTOR2);
+	register_op(Variant::OP_DIVIDE, Variant::VECTOR2, Variant::VECTOR2, Variant::VECTOR2);
 
 	singleton = this;
 }
@@ -134,8 +134,8 @@ void JitCompiler::decode_address(int encoded_address, int &address_type, int &ad
 	address_index = encoded_address & GDScriptFunction::ADDR_MASK;
 }
 
-void JitCompiler::register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type) {
-	op_map[(intptr_t)Variant::get_validated_operator_evaluator(op, left_type, right_type)] = OpInfo{ op, left_type, right_type };
+void JitCompiler::register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type, Variant::Type result_type) {
+	op_map[(intptr_t)Variant::get_validated_operator_evaluator(op, left_type, right_type)] = OpInfo{ op, left_type, right_type, result_type };
 }
 
 String JitCompiler::get_address_type_name(int address_type) {
@@ -186,6 +186,8 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	asmjit::FuncNode *funcNode = cc.addFunc(sig);
 
 	JitContext context;
+	context.stack_types.resize(gdscript->_stack_size);
+	context.stack_types.fill(Variant::NIL);
 	context.gdscript = gdscript;
 	context.args_ptr = cc.newIntPtr("args_ptr");
 	context.cc = &cc;
@@ -312,6 +314,13 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				Variant::ValidatedOperatorEvaluator op_func = gdscript->operator_funcs[operation_idx];
 
 				OpInfo operation = get_operator_info((intptr_t)op_func);
+
+				int result_type, result_index;
+				decode_address(result_addr, result_type, result_index);
+
+				if (operation.op != Variant::OP_MAX) {
+					context.stack_types.write[result_addr] = operation.result_type;
+				}
 
 				if (operation.left_type == Variant::VECTOR2 || operation.right_type == Variant::VECTOR2) {
 					handle_vector2_operation(operation, context, left_addr, right_addr, result_addr);
@@ -650,10 +659,49 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_addr = gdscript->_code_ptr[ip + 1];
 				int src_addr = gdscript->_code_ptr[ip + 2];
 
-				Gp src_ptr = get_variant_ptr(context, src_addr);
-				Gp dst_ptr = get_variant_ptr(context, dst_addr);
+				int dst_type, dst_index;
+				decode_address(dst_addr, dst_type, dst_index);
 
-				copy_variant(context, dst_ptr, src_ptr);
+				int src_type, src_index;
+				decode_address(src_addr, src_type, src_index);
+
+				// fast path for stack to stack assignment
+				// probably broken cus it assumes that the destination is always same type as the source
+				if (src_type == GDScriptFunction::ADDR_TYPE_STACK &&
+						dst_type == GDScriptFunction::ADDR_TYPE_STACK &&
+						context.stack_types[src_index] != Variant::NIL) {
+					switch (context.stack_types[src_index]) {
+						case Variant::INT: {
+							print_line(ip, "FAST");
+							Gp tmp = cc.newInt64();
+							cc.mov(tmp, get_variant_mem(context, src_addr, OFFSET_INT));
+							context.cc->mov(get_variant_type_mem(context, dst_addr), (int)Variant::INT);
+							context.cc->mov(get_variant_mem(context, dst_addr, OFFSET_INT), tmp);
+						} break;
+						case Variant::FLOAT: {
+							print_line(ip, "FAST");
+							Vec tmp = cc.newXmm();
+							cc.movsd(tmp, get_variant_mem(context, src_addr, OFFSET_FLOAT));
+							context.cc->mov(get_variant_type_mem(context, dst_addr), (int)Variant::FLOAT);
+							context.cc->movsd(get_variant_mem(context, dst_addr, OFFSET_FLOAT), tmp);
+						} break;
+						default: {
+							Gp src_ptr = get_variant_ptr(context, src_addr);
+							Gp dst_ptr = get_variant_ptr(context, dst_addr);
+
+							copy_variant(context, dst_ptr, src_ptr);
+						} break;
+					}
+				} else {
+					Gp src_ptr = get_variant_ptr(context, src_addr);
+					Gp dst_ptr = get_variant_ptr(context, dst_addr);
+
+					copy_variant(context, dst_ptr, src_ptr);
+				}
+
+				if (src_type == GDScriptFunction::ADDR_TYPE_STACK && dst_type == GDScriptFunction::ADDR_TYPE_STACK) {
+					context.stack_types.write[dst_index] = context.stack_types[src_index];
+				}
 
 				print_line(ip, "ASSIGN");
 				print_line("    Source:");
@@ -666,6 +714,9 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 			case GDScriptFunction::OPCODE_ASSIGN_NULL: {
 				int dst_addr = gdscript->_code_ptr[ip + 1];
 
+				int dst_type, dst_index;
+				decode_address(dst_addr, dst_type, dst_index);
+
 				print_line(ip, "ASSIGN_NULL");
 
 				Gp dst_ptr = get_variant_ptr(context, dst_addr);
@@ -677,6 +728,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 						}),
 						asmjit::FuncSignature::build<void, Variant *>());
 				assign_invoke->setArg(0, dst_ptr);
+
+				if (dst_type == GDScriptFunction::ADDR_TYPE_STACK) {
+					context.stack_types.write[dst_index] = Variant::NIL;
+				}
 
 				print_line("    Destination:");
 				print_address_info(gdscript, dst_addr);
@@ -1244,10 +1299,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				//placeholder Todo stack type tracker to handle this better
-				//copy_variant also can benefit from this
-				if (dst_type == GDScriptFunction::ADDR_TYPE_CONSTANT && gdscript->_constants_ptr[dst_index].get_type() == gdscript->return_type.builtin_type) {
-					switch (gdscript->_constants_ptr[dst_index].get_type()) {
+				if (dst_type == GDScriptFunction::ADDR_TYPE_STACK &&
+						context.stack_types[dst_index] != Variant::NIL &&
+						context.stack_types[dst_index] == context.gdscript->return_type.builtin_type) {
+					switch (context.stack_types[dst_index]) {
 						case Variant::INT: {
 							Gp tmp = cc.newInt64();
 							cc.mov(tmp, get_variant_mem(context, dst_addr, OFFSET_INT));
@@ -1439,14 +1494,13 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				print_line("    Iterator:");
 				print_address_info(gdscript, iterator_addr);
 
-				Gp size = extract_int_from_variant(context, container_addr);
 				Gp count = cc.newInt64("count");
 
 				context.cc->mov(count, get_variant_mem(context, counter_addr, OFFSET_INT));
-				context.cc->add(count, 1);
+				context.cc->inc(count);
 				context.cc->mov(get_variant_mem(context, counter_addr, OFFSET_INT), count);
 
-				cc.cmp(count, size);
+				cc.cmp(count, get_variant_mem(context, container_addr, OFFSET_INT));
 				cc.jae(analysis.jump_labels[jump_target]);
 				cc.mov(get_variant_mem(context, iterator_addr, OFFSET_INT), count);
 
@@ -1523,21 +1577,20 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				Mem counter_ptr = get_variant_mem(context, counter_addr, OFFSET_INT);
 				Mem to = get_variant_mem(context, to_addr, OFFSET_INT);
-				Gp step = extract_int_from_variant(context, step_addr);
+				Mem step = get_variant_mem(context, step_addr, OFFSET_INT);
 
 				Gp count = cc.newInt64("count");
-				context.cc->mov(count, counter_ptr);
-				context.cc->add(count, step);
-				context.cc->mov(counter_ptr, count);
+				cc.mov(count, counter_ptr);
+				cc.add(count, step);
+				cc.mov(counter_ptr, count);
 
-				Gp condition = cc.newInt64("condition");
-				cc.mov(condition, count);
-				cc.sub(condition, to);
-				cc.imul(condition, step);
-
-				cc.cmp(condition, 0);
-				cc.jge(analysis.jump_labels[jump_target]);
 				cc.mov(get_variant_mem(context, iterator_addr, OFFSET_INT), count);
+
+				cc.sub(count, to);
+				cc.imul(count, step);
+
+				cc.test(count, count);
+				cc.jge(analysis.jump_labels[jump_target]);
 
 				incr = 6;
 			} break;
@@ -1633,6 +1686,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	if (err) {
 		print_error(asmjit::DebugUtils::errorAsString(err));
 		return nullptr;
+	}
+
+	for (auto i = 0; i < context.stack_types.size(); i++) {
+		print_line("Stack type at address ", i, ": ", Variant::get_type_name(context.stack_types[i]));
 	}
 
 	auto end = OS::get_singleton()->get_ticks_usec() - start;
@@ -1885,7 +1942,7 @@ OpInfo JitCompiler::get_operator_info(intptr_t op_func) {
 		return op_map[op_func];
 	}
 
-	return OpInfo{ Variant::OP_MAX, Variant::VARIANT_MAX, Variant::VARIANT_MAX };
+	return OpInfo{ Variant::OP_MAX, Variant::VARIANT_MAX, Variant::VARIANT_MAX, Variant::VARIANT_MAX };
 }
 
 FunctionAnalysis JitCompiler::analyze_function(JitContext &context) {

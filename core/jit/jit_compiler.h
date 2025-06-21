@@ -58,6 +58,7 @@ struct OpInfo {
 	Variant::Operator op;
 	Variant::Type left_type;
 	Variant::Type right_type;
+	Variant::Type result_type;
 };
 
 struct JitContext {
@@ -71,6 +72,7 @@ struct JitContext {
 	Gp bool_ptr;
 	Gp operator_ptr;
 	Compiler *cc;
+	Vector<Variant::Type> stack_types;
 };
 
 struct FunctionAnalysis {
@@ -113,7 +115,7 @@ private:
 	Mem get_variant_mem(const JitContext &ctx, int address, int offset_field);
 	Mem get_variant_type_mem(const JitContext &ctx, int address, int offset = 0);
 
-	void register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type);
+	void register_op(Variant::Operator op, Variant::Type left_type, Variant::Type right_type, Variant::Type result_type);
 	OpInfo get_operator_info(intptr_t op_func);
 
 	static inline Mem mem_qword_ptr(const Gp &base, int disp = 0);
