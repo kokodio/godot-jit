@@ -205,6 +205,13 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 	auto analysis = analyze_function(context);
 	initialize_context(context, analysis);
 
+	for (auto i = 0; i < gdscript->argument_types.size(); i++) {
+		context.stack_types.write[i + 3] = gdscript->argument_types[i].builtin_type;
+	}
+	for (const KeyValue<int, Variant::Type> &slot : gdscript->temporary_slots) {
+		context.stack_types.write[slot.key] = slot.value;
+	}
+
 	print_line("\n=== Bytecode Analysis ===");
 	int ip = 0;
 	while (ip < gdscript->code.size()) {
@@ -575,10 +582,10 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 			case GDScriptFunction::OPCODE_GET_NAMED_VALIDATED: {
 				int base_addr = gdscript->_code_ptr[ip + 1];
 				int result_addr = gdscript->_code_ptr[ip + 2];
-				int name_idx = gdscript->_code_ptr[ip + 3];
+				int index_getter = gdscript->_code_ptr[ip + 3];
 
-				Variant::ValidatedGetter getter_func = gdscript->_getters_ptr[name_idx];
-				print_line(ip, "GET_NAMED_VALIDATED: ", name_idx);
+				Variant::ValidatedGetter getter_func = gdscript->_getters_ptr[index_getter];
+				print_line(ip, "GET_NAMED_VALIDATED: ", index_getter);
 
 				Gp base_ptr = get_variant_ptr(context, base_addr);
 				Gp value_ptr = get_variant_ptr(context, result_addr);
@@ -667,25 +674,37 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 
 				// fast path for stack to stack assignment
 				// probably broken cus it assumes that the destination is always same type as the source
-				if (src_type == GDScriptFunction::ADDR_TYPE_STACK &&
-						dst_type == GDScriptFunction::ADDR_TYPE_STACK &&
-						context.stack_types[src_index] != Variant::NIL) {
-					switch (context.stack_types[src_index]) {
+				if (src_type != GDScriptFunction::ADDR_TYPE_MEMBER &&
+						dst_type == GDScriptFunction::ADDR_TYPE_STACK) {
+					auto type = src_type == GDScriptFunction::ADDR_TYPE_STACK ? context.stack_types[src_index]
+																			  : context.gdscript->constants[src_index].get_type();
+
+					context.stack_types.write[dst_index] = type;
+
+					switch (type) {
 						case Variant::INT: {
-							print_line(ip, "FAST");
+							print_line(ip, "FAST INT ASSIGN");
 							Gp tmp = cc.newInt64();
 							cc.mov(tmp, get_variant_mem(context, src_addr, OFFSET_INT));
 							context.cc->mov(get_variant_type_mem(context, dst_addr), (int)Variant::INT);
 							context.cc->mov(get_variant_mem(context, dst_addr, OFFSET_INT), tmp);
 						} break;
+						case Variant::BOOL: {
+							print_line(ip, "FAST BOOL ASSIGN");
+							Gp tmp = cc.newInt64();
+							cc.mov(tmp, get_variant_mem(context, src_addr, OFFSET_BOOL));
+							context.cc->mov(get_variant_type_mem(context, dst_addr), (int)Variant::BOOL);
+							context.cc->mov(get_variant_mem(context, dst_addr, OFFSET_BOOL), tmp);
+						} break;
 						case Variant::FLOAT: {
-							print_line(ip, "FAST");
+							print_line(ip, "FAST FLOAT ASSIGN");
 							Vec tmp = cc.newXmm();
 							cc.movsd(tmp, get_variant_mem(context, src_addr, OFFSET_FLOAT));
 							context.cc->mov(get_variant_type_mem(context, dst_addr), (int)Variant::FLOAT);
 							context.cc->movsd(get_variant_mem(context, dst_addr, OFFSET_FLOAT), tmp);
 						} break;
 						default: {
+							print_line(ip, "SLOW ASSIGN");
 							Gp src_ptr = get_variant_ptr(context, src_addr);
 							Gp dst_ptr = get_variant_ptr(context, dst_addr);
 
@@ -693,14 +712,11 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 						} break;
 					}
 				} else {
+					print_line(ip, "SLOW ASSIGN");
 					Gp src_ptr = get_variant_ptr(context, src_addr);
 					Gp dst_ptr = get_variant_ptr(context, dst_addr);
 
 					copy_variant(context, dst_ptr, src_ptr);
-				}
-
-				if (src_type == GDScriptFunction::ADDR_TYPE_STACK && dst_type == GDScriptFunction::ADDR_TYPE_STACK) {
-					context.stack_types.write[dst_index] = context.stack_types[src_index];
 				}
 
 				print_line(ip, "ASSIGN");
@@ -1259,27 +1275,70 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int condition_addr = gdscript->_code_ptr[ip + 1];
 				int target = gdscript->_code_ptr[ip + 2];
 
-				Gp condition_ptr = get_variant_ptr(context, condition_addr);
 				Gp boolean_result = cc.newInt8("boolean_result");
 
-				asmjit::InvokeNode *booleanize_invoke;
+				int condition_type, condition_index;
+				decode_address(condition_addr, condition_type, condition_index);
+
 				if (opcode == GDScriptFunction::OPCODE_JUMP_IF_SHARED) {
+					Gp condition_ptr = get_variant_ptr(context, condition_addr);
+					asmjit::InvokeNode *booleanize_invoke;
 					cc.invoke(&booleanize_invoke,
 							static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
 								return v->is_shared();
 							}),
 							asmjit::FuncSignature::build<bool, const Variant *>());
+					booleanize_invoke->setArg(0, condition_ptr);
+					booleanize_invoke->setRet(0, boolean_result);
+					cc.test(boolean_result, boolean_result);
 				} else {
-					cc.invoke(&booleanize_invoke,
-							static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
-								return v->booleanize();
-							}),
-							asmjit::FuncSignature::build<bool, const Variant *>());
+					if (condition_type == GDScriptFunction::ADDR_TYPE_STACK &&
+							context.stack_types[condition_index] != Variant::NIL) {
+						switch (context.stack_types[condition_index]) {
+							case Variant::INT: {
+								print_line(ip, "FAST INT IF");
+								Gp temp = cc.newInt64();
+								cc.mov(temp, get_variant_mem(context, condition_addr, OFFSET_INT));
+								cc.test(temp, temp);
+							} break;
+							case Variant::FLOAT: {
+								print_line(ip, "FAST FLOAT IF");
+								Vec temp = cc.newXmm();
+								cc.movsd(temp, get_variant_mem(context, condition_addr, OFFSET_FLOAT));
+								cc.ptest(temp, temp);
+							} break;
+							case Variant::BOOL: {
+								print_line(ip, "FAST BOOL IF");
+								cc.mov(boolean_result, get_variant_mem(context, condition_addr, OFFSET_BOOL));
+								cc.test(boolean_result, boolean_result);
+							} break;
+							default: {
+								Gp condition_ptr = get_variant_ptr(context, condition_addr);
+								asmjit::InvokeNode *booleanize_invoke;
+								cc.invoke(&booleanize_invoke,
+										static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
+											return v->booleanize();
+										}),
+										asmjit::FuncSignature::build<bool, const Variant *>());
+								booleanize_invoke->setArg(0, condition_ptr);
+								booleanize_invoke->setRet(0, boolean_result);
+								cc.test(boolean_result, boolean_result);
+							} break;
+						}
+					} else {
+						Gp condition_ptr = get_variant_ptr(context, condition_addr);
+						asmjit::InvokeNode *booleanize_invoke;
+						cc.invoke(&booleanize_invoke,
+								static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
+									return v->booleanize();
+								}),
+								asmjit::FuncSignature::build<bool, const Variant *>());
+						booleanize_invoke->setArg(0, condition_ptr);
+						booleanize_invoke->setRet(0, boolean_result);
+						cc.test(boolean_result, boolean_result);
+					}
 				}
-				booleanize_invoke->setArg(0, condition_ptr);
-				booleanize_invoke->setRet(0, boolean_result);
 
-				cc.test(boolean_result, boolean_result);
 				if (opcode == GDScriptFunction::OPCODE_JUMP_IF_NOT) {
 					cc.jz(analysis.jump_labels[target]);
 				} else {
@@ -1299,28 +1358,35 @@ void *JitCompiler::compile_function(const GDScriptFunction *gdscript) {
 				int dst_type, dst_index;
 				decode_address(dst_addr, dst_type, dst_index);
 
-				if (dst_type == GDScriptFunction::ADDR_TYPE_STACK &&
-						context.stack_types[dst_index] != Variant::NIL &&
-						context.stack_types[dst_index] == context.gdscript->return_type.builtin_type) {
-					switch (context.stack_types[dst_index]) {
+				if ((dst_type == GDScriptFunction::ADDR_TYPE_STACK &&
+							context.stack_types[dst_index] != Variant::NIL &&
+							context.stack_types[dst_index] == context.gdscript->return_type.builtin_type) ||
+						(dst_type == GDScriptFunction::ADDR_TYPE_CONSTANT)) {
+					auto type = dst_type == GDScriptFunction::ADDR_TYPE_STACK ? context.stack_types[dst_index] : context.gdscript->return_type.builtin_type;
+
+					switch (type) {
 						case Variant::INT: {
+							print_line(ip, "FAST INT RETURN");
 							Gp tmp = cc.newInt64();
 							cc.mov(tmp, get_variant_mem(context, dst_addr, OFFSET_INT));
 							context.cc->mov(mem_dword_ptr(context.result_ptr, 0), (int)Variant::INT);
 							context.cc->mov(mem_qword_ptr(context.result_ptr, OFFSET_INT), tmp);
 						} break;
 						case Variant::FLOAT: {
+							print_line(ip, "FAST FLOAT RETURN");
 							Vec tmp = cc.newXmm();
 							cc.movsd(tmp, get_variant_mem(context, dst_addr, OFFSET_FLOAT));
 							context.cc->mov(mem_dword_ptr(context.result_ptr, 0), (int)Variant::FLOAT);
 							context.cc->movsd(mem_qword_ptr(context.result_ptr, OFFSET_FLOAT), tmp);
 						} break;
 						default: {
+							print_line(ip, "SLOW RETURN");
 							Gp src_ptr = get_variant_ptr(context, dst_addr);
 							copy_variant(context, context.result_ptr, src_ptr);
 						} break;
 					}
 				} else {
+					print_line(ip, "SLOW RETURN");
 					Gp src_ptr = get_variant_ptr(context, dst_addr);
 					copy_variant(context, context.result_ptr, src_ptr);
 				}
