@@ -35,6 +35,7 @@
 #include "gdscript_parser.h"
 #include "gdscript_tokenizer_buffer.h"
 #include "gdscript_utility_functions.h"
+#include "jit_runtime_manager.h"
 
 #ifdef TOOLS_ENABLED
 #include "editor/gdscript_highlighter.h"
@@ -152,6 +153,8 @@ void initialize_gdscript_module(ModuleInitializationLevel p_level) {
 		gdscript_cache = memnew(GDScriptCache);
 
 		GDScriptUtilityFunctions::register_functions();
+
+		JitRuntimeManager::create_singleton();
 	}
 
 #ifdef TOOLS_ENABLED
@@ -186,6 +189,8 @@ void uninitialize_gdscript_module(ModuleInitializationLevel p_level) {
 
 		GDScriptParser::cleanup();
 		GDScriptUtilityFunctions::unregister_functions();
+
+		JitRuntimeManager::destroy_singleton();
 	}
 
 #ifdef TOOLS_ENABLED
