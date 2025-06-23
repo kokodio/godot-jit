@@ -18,6 +18,7 @@ JitRuntimeManager *JitRuntimeManager::get_singleton() {
 void JitRuntimeManager::create_singleton() {
 	if (!singleton) {
 		singleton = memnew(JitRuntimeManager);
+		singleton->code.init(singleton->runtime.environment(), singleton->runtime.cpuFeatures());
 	}
 }
 

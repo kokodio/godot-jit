@@ -34,7 +34,17 @@
 #include "gdscript_codegen.h"
 #include "gdscript_function.h"
 #include "gdscript_utility_functions.h"
+#include "jit_runtime_manager.h"
+#include <asmjit/core.h>
+#include <asmjit/x86.h>
 
+using Compiler = asmjit::x86::Compiler;
+using Vec = asmjit::x86::Vec;
+using Gp = asmjit::x86::Gp;
+using Mem = asmjit::x86::Mem;
+namespace Arch {
+using namespace ::asmjit::x86;
+}
 class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	struct StackSlot {
 		Variant::Type type = Variant::NIL;
@@ -72,6 +82,28 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		CallTarget(const CallTarget &) = delete;
 		CallTarget &operator=(CallTarget &) = delete;
 	};
+
+	struct JitContext {
+		Compiler cc;
+
+		Gp result_ptr;
+		Gp constants_ptr;
+		Gp stack_ptr;
+		Gp members_ptr;
+
+		Gp call_error_ptr;
+		Gp operator_ptr;
+		Gp bool_ptr;
+
+		JitContext() :
+				cc(&JitRuntimeManager::get_singleton()->get_code()) {}
+
+		~JitContext() {
+			JitRuntimeManager::get_singleton()->get_code().reinit();
+		}
+	};
+
+	JitContext jit_context;
 
 	bool ended = false;
 	GDScriptFunction *function = nullptr;
@@ -552,6 +584,12 @@ public:
 	virtual void write_newline(int p_line) override;
 	virtual void write_return(const Address &p_return_value) override;
 	virtual void write_assert(const Address &p_test, const Address &p_message) override;
+	void print_address(const Address &p_address, const String &p_label = "");
+	void decode_address(const Address &p_address, int &address_type, int &address_index);
+	Gp get_variant_ptr(const Address &p_address);
+	Mem get_variant_mem(const Address &p_address, int offset_field);
+	Mem get_variant_type_mem(const Address &p_address, int offset);
+	void copy_variant(Gp &dst_ptr, Gp &src_ptr);
 
 	virtual ~GDScriptJitCodeGenerator();
 };

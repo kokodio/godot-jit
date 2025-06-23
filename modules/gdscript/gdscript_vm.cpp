@@ -738,6 +738,30 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 	bool awaited = false;
 	Variant *variant_addresses[ADDR_TYPE_MAX] = { stack, _constants_ptr, p_instance ? p_instance->members.ptrw() : nullptr };
 
+	if (jit_function) {
+		typedef void (*JitFunction)(Variant *result, Variant *constants_ptr, Variant *stack_ptr, Variant *members_ptr);
+		JitFunction jit_func = reinterpret_cast<JitFunction>(jit_function);
+
+		auto member_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
+		jit_func(&retvalue, _constants_ptr, stack, member_ptr);
+
+		if (!p_state) {
+			GDScriptLanguage::get_singleton()->exit_function();
+
+			for (int i = FIXED_ADDRESSES_MAX; i < _stack_size; i++) {
+				stack[i].~Variant();
+			}
+		}
+
+		for (int i = 0; i < FIXED_ADDRESSES_MAX; i++) {
+			stack[i].~Variant();
+		}
+
+		call_depth--;
+
+		return retvalue;
+	}
+
 #ifdef DEBUG_ENABLED
 	OPCODE_WHILE(ip < _code_size) {
 		int last_opcode = _code_ptr[ip];

@@ -8,6 +8,7 @@ class JitRuntimeManager {
 private:
 	static JitRuntimeManager *singleton;
 	asmjit::JitRuntime runtime;
+	asmjit::CodeHolder code;
 
 	JitRuntimeManager();
 
@@ -19,6 +20,7 @@ public:
 	~JitRuntimeManager();
 
 	asmjit::JitRuntime &get_runtime() { return runtime; }
+	asmjit::CodeHolder &get_code() { return code; }
 
 	void release_function(void *func_ptr);
 };

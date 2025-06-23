@@ -57,12 +57,23 @@ thirdparty_sources = [
     "src/asmjit/x86/x86instdb.cpp",
     "src/asmjit/x86/x86operand.cpp",
     "src/asmjit/x86/x86rapass.cpp",
+    "src/asmjit/arm/a64assembler.cpp",
+    "src/asmjit/arm/a64builder.cpp",
+    "src/asmjit/arm/a64compiler.cpp",
+    "src/asmjit/arm/a64emithelper.cpp",
+    "src/asmjit/arm/a64formatter.cpp",
+    "src/asmjit/arm/a64func.cpp",
+    "src/asmjit/arm/a64instapi.cpp",
+    "src/asmjit/arm/a64instdb.cpp",
+    "src/asmjit/arm/a64operand.cpp",
+    "src/asmjit/arm/a64rapass.cpp",
+    "src/asmjit/arm/armformatter.cpp",
 ]
 
 thirdparty_sources = [thirdparty_dir + file for file in thirdparty_sources]
 
 env_gdscript.Prepend(CPPPATH=[thirdparty_dir + "src"])
-env_gdscript.Append(CPPDEFINES=["ASMJIT_STATIC", "ASMJIT_NO_DEPRECATED"])
+env_gdscript.Append(CPPDEFINES=["ASMJIT_STATIC", "ASMJIT_NO_DEPRECATED", "GDSCRIPT_JIT_ENABLED"])
 env_gdscript.Prepend(CPPEXTPATH=[thirdparty_dir, thirdparty_dir + "src"])
 
 env_thirdparty = env_gdscript.Clone()
@@ -70,7 +81,6 @@ env_thirdparty.disable_warnings()
 env_thirdparty.add_source_files(thirdparty_obj, thirdparty_sources)
 
 env_gdscript.add_source_files(env.modules_sources, "*.cpp")
-env_gdscript.Append(CPPDEFINES=["GDSCRIPT_JIT_ENABLED"])
 
 env.modules_sources += thirdparty_obj
 
