@@ -97,36 +97,24 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		PatchType patch_type;
 	};
 
-	struct JitContext {
-		Compiler cc;
-		asmjit::StringLogger stringLogger;
+	Compiler cc;
+	asmjit::StringLogger stringLogger;
 
-		Gp result_ptr;
-		Gp constants_ptr;
-		Gp stack_ptr;
-		Gp members_ptr;
+	Gp result_ptr;
+	Gp constants_ptr;
+	Gp stack_ptr;
+	Gp members_ptr;
 
-		Gp call_error_ptr;
-		Gp operator_ptr;
-		Gp bool_ptr;
+	Gp call_error_ptr;
+	Gp operator_ptr;
+	Gp bool_ptr;
 
-		Vector<MemoryPatch> memory_patches;
-		List<asmjit::Label> if_labels;
-		List<asmjit::Label> else_labels;
+	Vector<MemoryPatch> memory_patches;
 
-		JitContext() :
-				cc(&JitRuntimeManager::get_singleton()->get_code()) {
-			JitRuntimeManager::get_singleton()->get_code().setLogger(&stringLogger);
-		}
-
-		~JitContext() {
-			JitRuntimeManager::get_singleton()->get_code().reinit();
-		}
-	};
+	List<asmjit::Label> if_labels;
+	List<asmjit::Label> else_labels;
 
 	void patch_memory_operands();
-
-	JitContext jit_context;
 
 	bool ended = false;
 	GDScriptFunction *function = nullptr;
@@ -607,6 +595,7 @@ public:
 	virtual void write_newline(int p_line) override;
 	virtual void write_return(const Address &p_return_value) override;
 	virtual void write_assert(const Address &p_test, const Address &p_message) override;
+
 	void print_address(const Address &p_address, const String &p_label = "");
 	void decode_address(const Address &p_address, int &address_type, int &address_index);
 	Gp get_variant_ptr(const Address &p_address);
@@ -614,6 +603,7 @@ public:
 	Mem get_variant_type_mem(const Address &p_address, int offset = 0);
 	void copy_variant(Gp &dst_ptr, Gp &src_ptr);
 	void assign(const Address &src, const Address &dst);
+	void assign_bool(const Address &dst, bool value);
 
 	template <typename RegT>
 	void mov_from_variant_mem(const RegT &dst, const Address &p_address, int offset = 0);
@@ -624,7 +614,11 @@ public:
 	void mov_from_variant_type_mem(const Gp &dst, const Address &p_address, int offset = 0);
 	void mov_to_variant_type_mem(const Address &p_address, int type_value, int offset = 0);
 
+	void handle_int_operation(Variant::Operator p_operator, const Address &left, const Address &right, const Address &result);
+	void gen_compare_int(Gp &lhs, Gp &rhs, const Address &p_result, Arch::CondCode cc);
+
 	virtual ~GDScriptJitCodeGenerator();
+	GDScriptJitCodeGenerator();
 
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
 

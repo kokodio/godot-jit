@@ -181,17 +181,17 @@ void GDScriptJitCodeGenerator::write_start(GDScript *p_script, const StringName 
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
 
-	asmjit::FuncNode *func_node = jit_context.cc.addFunc(sig);
+	asmjit::FuncNode *func_node = cc.addFunc(sig);
 
-	jit_context.result_ptr = jit_context.cc.newIntPtr("result_ptr");
-	jit_context.constants_ptr = jit_context.cc.newIntPtr("constants_ptr");
-	jit_context.stack_ptr = jit_context.cc.newIntPtr("stack_ptr");
-	jit_context.members_ptr = jit_context.cc.newIntPtr("members_ptr");
+	result_ptr = cc.newIntPtr("result_ptr");
+	constants_ptr = cc.newIntPtr("constants_ptr");
+	stack_ptr = cc.newIntPtr("stack_ptr");
+	members_ptr = cc.newIntPtr("members_ptr");
 
-	func_node->setArg(0, jit_context.result_ptr);
-	func_node->setArg(1, jit_context.constants_ptr);
-	func_node->setArg(2, jit_context.stack_ptr);
-	func_node->setArg(3, jit_context.members_ptr);
+	func_node->setArg(0, result_ptr);
+	func_node->setArg(1, constants_ptr);
+	func_node->setArg(2, stack_ptr);
+	func_node->setArg(3, members_ptr);
 }
 
 GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
@@ -429,8 +429,8 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 	function->gds_utilities_names = gds_utilities_names;
 #endif
 
-	jit_context.cc.endFunc();
-	jit_context.cc.finalize();
+	cc.endFunc();
+	cc.finalize();
 
 	void *func_ptr = nullptr;
 	asmjit::Error err = JitRuntimeManager::get_singleton()->get_runtime().add(&func_ptr, &JitRuntimeManager::get_singleton()->get_code());
@@ -438,7 +438,7 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 		print_error(asmjit::DebugUtils::errorAsString(err));
 	}
 
-	print_line(jit_context.stringLogger.data());
+	print_line(stringLogger.data());
 
 	function->jit_function = func_ptr;
 
@@ -595,7 +595,7 @@ void GDScriptJitCodeGenerator::write_unary_operator(const Address &p_target, Var
 		Gp op_ptr = get_variant_ptr(p_target);
 
 		asmjit::InvokeNode *op_invoke;
-		jit_context.cc.invoke(&op_invoke, op_func, asmjit::FuncSignature::build<void, const Variant *, const Variant *, Variant *>());
+		cc.invoke(&op_invoke, op_func, asmjit::FuncSignature::build<void, const Variant *, const Variant *, Variant *>());
 		op_invoke->setArg(0, left_ptr);
 		op_invoke->setArg(1, right_ptr);
 		op_invoke->setArg(2, op_ptr);
@@ -657,15 +657,20 @@ void GDScriptJitCodeGenerator::write_binary_operator(const Address &p_target, Va
 		// Gather specific operator.
 		Variant::ValidatedOperatorEvaluator op_func = Variant::get_validated_operator_evaluator(p_operator, p_left_operand.type.builtin_type, p_right_operand.type.builtin_type);
 
-		Gp left_ptr = get_variant_ptr(p_left_operand);
-		Gp right_ptr = get_variant_ptr(p_right_operand);
-		Gp op_ptr = get_variant_ptr(p_target);
+		if (p_left_operand.type.builtin_type == Variant::INT && p_right_operand.type.builtin_type == Variant::INT) {
+			handle_int_operation(p_operator, p_left_operand, p_right_operand, p_target);
+		} else {
+			Gp left_ptr = get_variant_ptr(p_left_operand);
+			Gp right_ptr = get_variant_ptr(p_right_operand);
+			Gp op_ptr = get_variant_ptr(p_target);
 
-		asmjit::InvokeNode *op_invoke;
-		jit_context.cc.invoke(&op_invoke, op_func, asmjit::FuncSignature::build<void, const Variant *, const Variant *, Variant *>());
-		op_invoke->setArg(0, left_ptr);
-		op_invoke->setArg(1, right_ptr);
-		op_invoke->setArg(2, op_ptr);
+			asmjit::InvokeNode *op_invoke;
+			cc.invoke(&op_invoke, op_func, asmjit::FuncSignature::build<void, const Variant *, const Variant *, Variant *>());
+			op_invoke->setArg(0, left_ptr);
+			op_invoke->setArg(1, right_ptr);
+			op_invoke->setArg(2, op_ptr);
+		}
+
 		print_line("GDScriptJitCodeGenerator::write_binary_operator");
 
 		append_opcode(GDScriptFunction::OPCODE_OPERATOR_VALIDATED);
@@ -1578,23 +1583,36 @@ void GDScriptJitCodeGenerator::write_await(const Address &p_target, const Addres
 }
 
 void GDScriptJitCodeGenerator::write_if(const Address &p_condition) {
-	asmjit::Label end_if_label = jit_context.cc.newLabel();
-	jit_context.if_labels.push_back(end_if_label);
+	asmjit::Label end_if_label = cc.newLabel();
+	if_labels.push_back(end_if_label);
 
-	asmjit::x86::Gp condition_ptr = get_variant_ptr(p_condition);
+	switch (p_condition.type.builtin_type) {
+		case Variant::INT: {
+			Gp temp = cc.newInt64();
+			mov_from_variant_mem(temp, p_condition, OFFSET_INT);
+			cc.test(temp, temp);
+		} break;
+		case Variant::BOOL: {
+			Gp temp = cc.newInt64();
+			mov_from_variant_mem(temp, p_condition, OFFSET_BOOL);
+			cc.test(temp, temp);
+		} break;
+		default: {
+			Gp condition_ptr = get_variant_ptr(p_condition);
+			Gp bool_result = cc.newInt8("bool_result");
+			asmjit::InvokeNode *booleanize_invoke;
+			cc.invoke(&booleanize_invoke,
+					static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
+						return v->booleanize();
+					}),
+					asmjit::FuncSignature::build<bool, const Variant *>());
+			booleanize_invoke->setArg(0, condition_ptr);
+			booleanize_invoke->setRet(0, bool_result);
 
-	asmjit::x86::Gp bool_result = jit_context.cc.newInt8("bool_result");
-	asmjit::InvokeNode *booleanize_invoke;
-	jit_context.cc.invoke(&booleanize_invoke,
-			static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
-				return v->booleanize();
-			}),
-			asmjit::FuncSignature::build<bool, const Variant *>());
-	booleanize_invoke->setArg(0, condition_ptr);
-	booleanize_invoke->setRet(0, bool_result);
-
-	jit_context.cc.test(bool_result, bool_result);
-	jit_context.cc.jz(end_if_label);
+			cc.test(bool_result, bool_result);
+		}
+	}
+	cc.jz(end_if_label);
 
 	append_opcode(GDScriptFunction::OPCODE_JUMP_IF_NOT);
 	append(p_condition);
@@ -1603,16 +1621,16 @@ void GDScriptJitCodeGenerator::write_if(const Address &p_condition) {
 }
 
 void GDScriptJitCodeGenerator::write_else() {
-	asmjit::Label end_if_else_label = jit_context.cc.newLabel();
-	jit_context.else_labels.push_back(end_if_else_label);
+	asmjit::Label end_if_else_label = cc.newLabel();
+	else_labels.push_back(end_if_else_label);
 
-	jit_context.cc.jmp(end_if_else_label);
+	cc.jmp(end_if_else_label);
 
-	asmjit::Label if_false_label = jit_context.if_labels.back()->get();
-	jit_context.if_labels.pop_back();
-	jit_context.cc.bind(if_false_label);
+	asmjit::Label if_false_label = if_labels.back()->get();
+	if_labels.pop_back();
+	cc.bind(if_false_label);
 
-	jit_context.if_labels.push_back(end_if_else_label);
+	if_labels.push_back(end_if_else_label);
 
 	append_opcode(GDScriptFunction::OPCODE_JUMP); // Jump from true if block;
 	int else_jmp_addr = opcodes.size();
@@ -1626,15 +1644,15 @@ void GDScriptJitCodeGenerator::write_else() {
 void GDScriptJitCodeGenerator::write_endif() {
 	asmjit::Label final_label;
 
-	if (!jit_context.else_labels.is_empty()) {
-		final_label = jit_context.else_labels.back()->get();
-		jit_context.else_labels.pop_back();
+	if (!else_labels.is_empty()) {
+		final_label = else_labels.back()->get();
+		else_labels.pop_back();
 	} else {
-		final_label = jit_context.if_labels.back()->get();
+		final_label = if_labels.back()->get();
 	}
 
-	jit_context.if_labels.pop_back();
-	jit_context.cc.bind(final_label);
+	if_labels.pop_back();
+	cc.bind(final_label);
 
 	patch_jump(if_jmp_addrs.back()->get());
 	if_jmp_addrs.pop_back();
@@ -1979,23 +1997,23 @@ void GDScriptJitCodeGenerator::write_return(const Address &p_return_value) {
 				append(p_return_value);
 				append(function->return_type.builtin_type);
 			} else if (function->return_type.kind == GDScriptDataType::BUILTIN && p_return_value.type.kind == GDScriptDataType::BUILTIN && p_return_value.type.builtin_type == Variant::INT) {
-				Gp tmp = jit_context.cc.newInt64();
+				Gp tmp = cc.newInt64();
 				mov_from_variant_mem(tmp, p_return_value, OFFSET_INT);
-				jit_context.cc.mov(Arch::dword_ptr(jit_context.result_ptr), (int)Variant::INT);
-				jit_context.cc.mov(Arch::qword_ptr(jit_context.result_ptr, OFFSET_INT), tmp);
-				jit_context.cc.ret();
+				cc.mov(Arch::dword_ptr(result_ptr), (int)Variant::INT);
+				cc.mov(Arch::qword_ptr(result_ptr, OFFSET_INT), tmp);
+				cc.ret();
 			} else {
 				Gp src_ptr = get_variant_ptr(p_return_value);
-				copy_variant(jit_context.result_ptr, src_ptr);
-				jit_context.cc.ret();
+				copy_variant(result_ptr, src_ptr);
+				cc.ret();
 
 				append_opcode(GDScriptFunction::OPCODE_RETURN);
 				append(p_return_value);
 			}
 		} else {
 			Gp src_ptr = get_variant_ptr(p_return_value);
-			copy_variant(jit_context.result_ptr, src_ptr);
-			jit_context.cc.ret();
+			copy_variant(result_ptr, src_ptr);
+			cc.ret();
 
 			append_opcode(GDScriptFunction::OPCODE_RETURN);
 			append(p_return_value);
@@ -2129,6 +2147,12 @@ GDScriptJitCodeGenerator::~GDScriptJitCodeGenerator() {
 	if (!ended && function != nullptr) {
 		memdelete(function);
 	}
+	JitRuntimeManager::get_singleton()->get_code().reinit();
+}
+
+GDScriptJitCodeGenerator::GDScriptJitCodeGenerator() :
+		cc(&JitRuntimeManager::get_singleton()->get_code()) {
+	JitRuntimeManager::get_singleton()->get_code().setLogger(&stringLogger);
 }
 
 void GDScriptJitCodeGenerator::print_address(const Address &p_address, const String &p_label) {
@@ -2184,9 +2208,7 @@ void GDScriptJitCodeGenerator::print_address(const Address &p_address, const Str
 			break;
 
 		case Address::TEMPORARY: {
-			int real_stack_address = p_address.address + max_locals + GDScriptFunction::FIXED_ADDRESSES_MAX;
-			print_line(prefix, "TEMP[", p_address.address, "] -> STACK[", real_stack_address, "] type=",
-					p_address.type.has_type ? Variant::get_type_name(p_address.type.builtin_type) : "untyped");
+			print_line(prefix, "TEMP[", p_address.address, "] type=", p_address.type.has_type ? Variant::get_type_name(p_address.type.builtin_type) : "untyped");
 			if (p_address.address < temporaries.size()) {
 				const StackSlot &slot = temporaries[p_address.address];
 				print_line("  slot_type=", Variant::get_type_name(slot.type),
@@ -2285,38 +2307,33 @@ void GDScriptJitCodeGenerator::decode_address(const Address &p_address, int &add
 }
 
 Gp GDScriptJitCodeGenerator::get_variant_ptr(const Address &p_address) {
-	Gp variant_ptr = jit_context.cc.newIntPtr();
+	Gp variant_ptr = cc.newIntPtr();
 
 	switch (p_address.mode) {
 		case Address::SELF: {
-			jit_context.cc.lea(variant_ptr,
-					Arch::ptr(jit_context.stack_ptr, GDScriptFunction::ADDR_SELF * sizeof(Variant)));
+			cc.lea(variant_ptr, Arch::ptr(stack_ptr, GDScriptFunction::ADDR_SELF * sizeof(Variant)));
 		} break;
 
 		case Address::CLASS: {
-			jit_context.cc.lea(variant_ptr,
-					Arch::ptr(jit_context.stack_ptr, GDScriptFunction::ADDR_CLASS * sizeof(Variant)));
+			cc.lea(variant_ptr, Arch::ptr(stack_ptr, GDScriptFunction::ADDR_CLASS * sizeof(Variant)));
 		} break;
 
 		case Address::MEMBER: {
-			jit_context.cc.lea(variant_ptr,
-					Arch::ptr(jit_context.members_ptr, p_address.address * sizeof(Variant)));
+			cc.lea(variant_ptr, Arch::ptr(members_ptr, p_address.address * sizeof(Variant)));
 		} break;
 
 		case Address::CONSTANT: {
-			jit_context.cc.lea(variant_ptr,
-					Arch::ptr(jit_context.constants_ptr, p_address.address * sizeof(Variant)));
+			cc.lea(variant_ptr, Arch::ptr(constants_ptr, p_address.address * sizeof(Variant)));
 		} break;
 
 		case Address::LOCAL_VARIABLE:
 		case Address::FUNCTION_PARAMETER: {
-			jit_context.cc.lea(variant_ptr,
-					Arch::ptr(jit_context.stack_ptr, p_address.address * sizeof(Variant)));
+			cc.lea(variant_ptr, Arch::ptr(stack_ptr, p_address.address * sizeof(Variant)));
 		} break;
 
 		case Address::TEMPORARY: {
-			jit_context.cc.lea(variant_ptr, Arch::ptr(jit_context.stack_ptr, 0));
-			asmjit::BaseNode *node = jit_context.cc.cursor();
+			cc.lea(variant_ptr, Arch::ptr(stack_ptr));
+			asmjit::BaseNode *node = cc.cursor();
 
 			MemoryPatch patch;
 			patch.node = node;
@@ -2324,12 +2341,11 @@ Gp GDScriptJitCodeGenerator::get_variant_ptr(const Address &p_address) {
 			patch.temp_address = p_address.address;
 			patch.patch_type = MemoryPatch::VARIANT_PTR;
 
-			jit_context.memory_patches.push_back(patch);
+			memory_patches.push_back(patch);
 		} break;
 
 		case Address::NIL: {
-			jit_context.cc.lea(variant_ptr,
-					Arch::ptr(jit_context.stack_ptr, GDScriptFunction::ADDR_NIL * sizeof(Variant)));
+			cc.lea(variant_ptr, Arch::ptr(stack_ptr, GDScriptFunction::ADDR_NIL * sizeof(Variant)));
 		} break;
 	}
 
@@ -2342,22 +2358,22 @@ void GDScriptJitCodeGenerator::mov_from_variant_mem(const RegT &dst, const Addre
 	Mem mem = get_variant_mem(p_address, offset);
 
 	if constexpr (std::is_same<RegT, Gp>::value) {
-		jit_context.cc.mov(dst, mem);
+		cc.mov(dst, mem);
 	} else if constexpr (std::is_same<RegT, Vec>::value) {
-		jit_context.cc.movsd(dst, mem);
+		cc.movsd(dst, mem);
 	} else {
 		static_assert(false, "Unsupported register type");
 	}
 
 	if (p_address.mode == Address::TEMPORARY) {
-		asmjit::BaseNode *node = jit_context.cc.cursor();
+		asmjit::BaseNode *node = cc.cursor();
 		MemoryPatch patch;
 		patch.node = node;
 		patch.operand_index = 1;
 		patch.temp_address = p_address.address;
 		patch.additional_offset = offset;
 		patch.patch_type = MemoryPatch::VARIANT_MEM;
-		jit_context.memory_patches.push_back(patch);
+		memory_patches.push_back(patch);
 	}
 }
 
@@ -2367,62 +2383,62 @@ void GDScriptJitCodeGenerator::mov_to_variant_mem(const Address &p_address, cons
 	Mem mem = get_variant_mem(p_address, offset);
 
 	if constexpr (std::is_same<RegT, Gp>::value) {
-		jit_context.cc.mov(mem, src);
+		cc.mov(mem, src);
 	} else if constexpr (std::is_same<RegT, Vec>::value) {
-		jit_context.cc.movsd(mem, src);
+		cc.movsd(mem, src);
 	} else {
 		static_assert(false, "Unsupported register type");
 	}
 
 	if (p_address.mode == Address::TEMPORARY) {
-		asmjit::BaseNode *node = jit_context.cc.cursor();
+		asmjit::BaseNode *node = cc.cursor();
 		MemoryPatch patch;
 		patch.node = node;
 		patch.operand_index = 0;
 		patch.temp_address = p_address.address;
 		patch.additional_offset = offset;
 		patch.patch_type = MemoryPatch::VARIANT_MEM;
-		jit_context.memory_patches.push_back(patch);
+		memory_patches.push_back(patch);
 	}
 }
 
 //todo combine all
 void GDScriptJitCodeGenerator::mov_from_variant_type_mem(const Gp &dst, const Address &p_address, int offset) {
 	Mem mem = get_variant_type_mem(p_address, offset);
-	jit_context.cc.mov(dst, mem);
+	cc.mov(dst, mem);
 
 	if (p_address.mode == Address::TEMPORARY) {
-		asmjit::BaseNode *node = jit_context.cc.cursor();
+		asmjit::BaseNode *node = cc.cursor();
 		MemoryPatch patch;
 		patch.node = node;
 		patch.operand_index = 1;
 		patch.temp_address = p_address.address;
 		patch.additional_offset = offset;
 		patch.patch_type = MemoryPatch::VARIANT_TYPE_MEM;
-		jit_context.memory_patches.push_back(patch);
+		memory_patches.push_back(patch);
 	}
 }
 
 void GDScriptJitCodeGenerator::mov_to_variant_type_mem(const Address &p_address, int type_value, int offset) {
 	Mem mem = get_variant_type_mem(p_address, offset);
-	jit_context.cc.mov(mem, type_value);
+	cc.mov(mem, type_value);
 
 	if (p_address.mode == Address::TEMPORARY) {
-		asmjit::BaseNode *node = jit_context.cc.cursor();
+		asmjit::BaseNode *node = cc.cursor();
 		MemoryPatch patch;
 		patch.node = node;
 		patch.operand_index = 0;
 		patch.temp_address = p_address.address;
 		patch.additional_offset = offset;
 		patch.patch_type = MemoryPatch::VARIANT_TYPE_MEM;
-		jit_context.memory_patches.push_back(patch);
+		memory_patches.push_back(patch);
 	}
 }
 
 void GDScriptJitCodeGenerator::patch_memory_operands() {
 	int base_offset = (GDScriptFunction::FIXED_ADDRESSES_MAX + max_locals) * sizeof(Variant);
 
-	for (const MemoryPatch &patch : jit_context.memory_patches) {
+	for (const MemoryPatch &patch : memory_patches) {
 		asmjit::InstNode *inst_node = patch.node->as<asmjit::InstNode>();
 
 		if (inst_node) {
@@ -2444,7 +2460,7 @@ void GDScriptJitCodeGenerator::patch_memory_operands() {
 		}
 	}
 
-	jit_context.memory_patches.clear();
+	memory_patches.clear();
 }
 
 //todo
@@ -2452,41 +2468,41 @@ Mem GDScriptJitCodeGenerator::get_variant_mem(const Address &p_address, int offs
 	switch (p_address.mode) {
 		case Address::SELF: {
 			int disp = GDScriptFunction::ADDR_SELF * sizeof(Variant) + offset;
-			return Arch::qword_ptr(jit_context.stack_ptr, disp);
+			return Arch::qword_ptr(stack_ptr, disp);
 		}
 
 		case Address::CLASS: {
 			int disp = GDScriptFunction::ADDR_CLASS * sizeof(Variant) + offset;
-			return Arch::qword_ptr(jit_context.stack_ptr, disp);
+			return Arch::qword_ptr(stack_ptr, disp);
 		}
 
 		case Address::MEMBER: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::qword_ptr(jit_context.members_ptr, disp);
+			return Arch::qword_ptr(members_ptr, disp);
 		}
 
 		case Address::CONSTANT: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::qword_ptr(jit_context.constants_ptr, disp);
+			return Arch::qword_ptr(constants_ptr, disp);
 		}
 
 		case Address::LOCAL_VARIABLE:
 		case Address::FUNCTION_PARAMETER: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::qword_ptr(jit_context.stack_ptr, disp);
+			return Arch::qword_ptr(stack_ptr, disp);
 		}
 
 		case Address::TEMPORARY: {
-			return Arch::qword_ptr(jit_context.stack_ptr, 0);
+			return Arch::qword_ptr(stack_ptr);
 		}
 
 		case Address::NIL: {
 			int disp = GDScriptFunction::ADDR_NIL * sizeof(Variant) + offset;
-			return Arch::qword_ptr(jit_context.stack_ptr, disp);
+			return Arch::qword_ptr(stack_ptr, disp);
 		}
 
 		default: {
-			return Arch::qword_ptr(jit_context.stack_ptr, 0);
+			return Arch::qword_ptr(stack_ptr);
 		}
 	}
 }
@@ -2496,48 +2512,48 @@ Mem GDScriptJitCodeGenerator::get_variant_type_mem(const Address &p_address, int
 	switch (p_address.mode) {
 		case Address::SELF: {
 			int disp = GDScriptFunction::ADDR_SELF * sizeof(Variant) + offset;
-			return Arch::dword_ptr(jit_context.stack_ptr, disp);
+			return Arch::dword_ptr(stack_ptr, disp);
 		}
 
 		case Address::CLASS: {
 			int disp = GDScriptFunction::ADDR_CLASS * sizeof(Variant) + offset;
-			return Arch::dword_ptr(jit_context.stack_ptr, disp);
+			return Arch::dword_ptr(stack_ptr, disp);
 		}
 
 		case Address::MEMBER: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::dword_ptr(jit_context.members_ptr, disp);
+			return Arch::dword_ptr(members_ptr, disp);
 		}
 
 		case Address::CONSTANT: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::dword_ptr(jit_context.constants_ptr, disp);
+			return Arch::dword_ptr(constants_ptr, disp);
 		}
 
 		case Address::LOCAL_VARIABLE:
 		case Address::FUNCTION_PARAMETER: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::dword_ptr(jit_context.stack_ptr, disp);
+			return Arch::dword_ptr(stack_ptr, disp);
 		}
 
 		case Address::TEMPORARY: {
-			return Arch::dword_ptr(jit_context.stack_ptr, 0);
+			return Arch::dword_ptr(stack_ptr);
 		}
 
 		case Address::NIL: {
 			int disp = GDScriptFunction::ADDR_NIL * sizeof(Variant) + offset;
-			return Arch::dword_ptr(jit_context.stack_ptr, disp);
+			return Arch::dword_ptr(stack_ptr, disp);
 		}
 
 		default: {
-			return Arch::dword_ptr(jit_context.stack_ptr, 0);
+			return Arch::dword_ptr(stack_ptr);
 		}
 	}
 }
 
 void GDScriptJitCodeGenerator::copy_variant(Gp &dst_ptr, Gp &src_ptr) {
 	asmjit::InvokeNode *copy_invoke;
-	jit_context.cc.invoke(&copy_invoke,
+	cc.invoke(&copy_invoke,
 			static_cast<void (*)(Variant *, const Variant *)>([](Variant *dst, const Variant *src) {
 				*dst = *src;
 			}),
@@ -2551,19 +2567,19 @@ void GDScriptJitCodeGenerator::assign(const Address &src, const Address &dst) {
 	if (src.type.kind == GDScriptDataType::BUILTIN && (dst.type.kind == GDScriptDataType::BUILTIN || dst.type.kind == GDScriptDataType::UNINITIALIZED)) {
 		switch (src.type.builtin_type) {
 			case Variant::INT: {
-				Gp tmp = jit_context.cc.newInt64();
+				Gp tmp = cc.newInt64();
 				mov_from_variant_mem(tmp, src, OFFSET_INT);
 				mov_to_variant_type_mem(dst, (int)Variant::INT);
 				mov_to_variant_mem(dst, tmp, OFFSET_INT);
 			} break;
 			case Variant::BOOL: {
-				Gp tmp = jit_context.cc.newInt64();
+				Gp tmp = cc.newInt64();
 				mov_from_variant_mem(tmp, src, OFFSET_BOOL);
 				mov_to_variant_type_mem(dst, (int)Variant::BOOL);
 				mov_to_variant_mem(dst, tmp, OFFSET_BOOL);
 			} break;
 			case Variant::FLOAT: {
-				Vec tmp = jit_context.cc.newXmm();
+				Vec tmp = cc.newXmm();
 				mov_from_variant_mem(tmp, src, OFFSET_FLOAT);
 				mov_to_variant_type_mem(dst, (int)Variant::FLOAT);
 				mov_to_variant_mem(dst, tmp, OFFSET_FLOAT);
@@ -2581,4 +2597,88 @@ void GDScriptJitCodeGenerator::assign(const Address &src, const Address &dst) {
 
 		copy_variant(dst_ptr, src_ptr);
 	}
+}
+
+void GDScriptJitCodeGenerator::assign_bool(const Address &dst, bool value) {
+	if (dst.type.kind == GDScriptDataType::BUILTIN && !Variant::needs_deinit[dst.type.builtin_type]) {
+		Gp tmp = cc.newInt64();
+		if (value) {
+			cc.mov(tmp, 1);
+		} else {
+			cc.xor_(tmp, tmp);
+		}
+		mov_to_variant_mem(dst, tmp, OFFSET_BOOL); //todo
+	} else {
+		Gp dst_ptr = get_variant_ptr(dst);
+
+		asmjit::InvokeNode *copy_invoke;
+		cc.invoke(&copy_invoke,
+				static_cast<void (*)(Variant *)>([](Variant *i_dst) {
+					*i_dst = true;
+				}),
+				asmjit::FuncSignature::build<void, Variant *>());
+		copy_invoke->setArg(0, dst_ptr);
+	}
+}
+
+//todo all op
+void GDScriptJitCodeGenerator::handle_int_operation(Variant::Operator p_operator, const Address &p_left, const Address &p_right, const Address &p_result) {
+	Gp left = cc.newInt64();
+	Gp right = cc.newInt64();
+
+	mov_from_variant_mem(left, p_left, OFFSET_INT);
+	mov_from_variant_mem(right, p_right, OFFSET_INT);
+
+	switch (p_operator) {
+		case Variant::OP_ADD:
+			cc.add(left, right);
+			break;
+		case Variant::OP_SUBTRACT:
+			cc.sub(left, right);
+			break;
+		case Variant::OP_MULTIPLY:
+			cc.imul(left, right);
+			break;
+		case Variant::OP_EQUAL:
+			gen_compare_int(left, right, p_result, Arch::CondCode::kEqual);
+			break;
+		case Variant::OP_NOT_EQUAL:
+			gen_compare_int(left, right, p_result, Arch::CondCode::kNotEqual);
+			break;
+		case Variant::OP_LESS:
+			gen_compare_int(left, right, p_result, Arch::CondCode::kL);
+			break;
+		case Variant::OP_LESS_EQUAL:
+			gen_compare_int(left, right, p_result, Arch::CondCode::kLE);
+			break;
+		case Variant::OP_GREATER:
+			gen_compare_int(left, right, p_result, Arch::CondCode::kG);
+			break;
+		case Variant::OP_GREATER_EQUAL:
+			gen_compare_int(left, right, p_result, Arch::CondCode::kGE);
+			break;
+		default: {
+			print_error("Unsupported int operation");
+			return;
+		}
+	}
+
+	auto return_type = (p_operator == Variant::OP_EQUAL || p_operator == Variant::OP_NOT_EQUAL ||
+							   p_operator == Variant::OP_LESS || p_operator == Variant::OP_LESS_EQUAL ||
+							   p_operator == Variant::OP_GREATER || p_operator == Variant::OP_GREATER_EQUAL ||
+							   p_operator == Variant::OP_AND || p_operator == Variant::OP_OR ||
+							   p_operator == Variant::OP_XOR || p_operator == Variant::OP_NOT ||
+							   p_operator == Variant::OP_IN)
+			? Variant::BOOL
+			: Variant::INT;
+	if (p_result.type.builtin_type != return_type || p_result.type.kind == GDScriptDataType::UNINITIALIZED) {
+		mov_to_variant_type_mem(p_result, return_type); //?
+	}
+	mov_to_variant_mem(p_result, left, OFFSET_INT);
+}
+
+void GDScriptJitCodeGenerator::gen_compare_int(Gp &lhs, Gp &rhs, const Address &p_result, Arch::CondCode code) {
+	cc.cmp(lhs, rhs);
+	cc.set(code, lhs.r8());
+	cc.movzx(lhs, lhs.r8());
 }
