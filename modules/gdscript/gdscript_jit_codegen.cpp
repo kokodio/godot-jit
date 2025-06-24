@@ -158,6 +158,7 @@ void GDScriptJitCodeGenerator::end_parameters() {
 }
 
 void GDScriptJitCodeGenerator::write_start(GDScript *p_script, const StringName &p_function_name, bool p_static, Variant p_rpc_config, const GDScriptDataType &p_return_type) {
+	start_time = OS::get_singleton()->get_ticks_usec();
 	function = memnew(GDScriptFunction);
 
 	function->name = p_function_name;
@@ -439,6 +440,10 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 	}
 
 	print_line(stringLogger.data());
+
+	uint64_t end_time = OS::get_singleton()->get_ticks_usec();
+	uint64_t elapsed_time = end_time - start_time;
+	print_line("JIT compilation of function '" + String(function->name) + "' completed in " + String::num_int64(elapsed_time) + " us");
 
 	function->jit_function = func_ptr;
 
@@ -1028,6 +1033,7 @@ void GDScriptJitCodeGenerator::write_assign_with_conversion(const Address &p_tar
 		} break;
 		default: {
 			ERR_PRINT("Compiler bug: unresolved assign.");
+			assign(p_source, p_target);
 
 			// Shouldn't get here, but fail-safe to a regular assignment
 			append_opcode(GDScriptFunction::OPCODE_ASSIGN);
@@ -1073,16 +1079,19 @@ void GDScriptJitCodeGenerator::write_assign(const Address &p_target, const Addre
 }
 
 void GDScriptJitCodeGenerator::write_assign_null(const Address &p_target) {
+	assign_null(p_target);
 	append_opcode(GDScriptFunction::OPCODE_ASSIGN_NULL);
 	append(p_target);
 }
 
 void GDScriptJitCodeGenerator::write_assign_true(const Address &p_target) {
+	assign_bool(p_target, true);
 	append_opcode(GDScriptFunction::OPCODE_ASSIGN_TRUE);
 	append(p_target);
 }
 
 void GDScriptJitCodeGenerator::write_assign_false(const Address &p_target) {
+	assign_bool(p_target, false);
 	append_opcode(GDScriptFunction::OPCODE_ASSIGN_FALSE);
 	append(p_target);
 }
@@ -1583,8 +1592,11 @@ void GDScriptJitCodeGenerator::write_await(const Address &p_target, const Addres
 }
 
 void GDScriptJitCodeGenerator::write_if(const Address &p_condition) {
-	asmjit::Label end_if_label = cc.newLabel();
-	if_labels.push_back(end_if_label);
+	print_line("if");
+	IfContext if_context;
+	if_context.if_false_label = cc.newLabel();
+	if_context.end_label = cc.newLabel();
+	if_contexts.push_back(if_context);
 
 	switch (p_condition.type.builtin_type) {
 		case Variant::INT: {
@@ -1593,7 +1605,7 @@ void GDScriptJitCodeGenerator::write_if(const Address &p_condition) {
 			cc.test(temp, temp);
 		} break;
 		case Variant::BOOL: {
-			Gp temp = cc.newInt64();
+			Gp temp = cc.newInt8();
 			mov_from_variant_mem(temp, p_condition, OFFSET_BOOL);
 			cc.test(temp, temp);
 		} break;
@@ -1612,7 +1624,7 @@ void GDScriptJitCodeGenerator::write_if(const Address &p_condition) {
 			cc.test(bool_result, bool_result);
 		}
 	}
-	cc.jz(end_if_label);
+	cc.jz(if_context.if_false_label);
 
 	append_opcode(GDScriptFunction::OPCODE_JUMP_IF_NOT);
 	append(p_condition);
@@ -1621,16 +1633,13 @@ void GDScriptJitCodeGenerator::write_if(const Address &p_condition) {
 }
 
 void GDScriptJitCodeGenerator::write_else() {
-	asmjit::Label end_if_else_label = cc.newLabel();
-	else_labels.push_back(end_if_else_label);
+	print_line("else");
+	IfContext &current_if = if_contexts.back()->get();
+	current_if.has_else = true;
 
-	cc.jmp(end_if_else_label);
+	cc.jmp(current_if.end_label);
 
-	asmjit::Label if_false_label = if_labels.back()->get();
-	if_labels.pop_back();
-	cc.bind(if_false_label);
-
-	if_labels.push_back(end_if_else_label);
+	cc.bind(current_if.if_false_label);
 
 	append_opcode(GDScriptFunction::OPCODE_JUMP); // Jump from true if block;
 	int else_jmp_addr = opcodes.size();
@@ -1642,17 +1651,16 @@ void GDScriptJitCodeGenerator::write_else() {
 }
 
 void GDScriptJitCodeGenerator::write_endif() {
-	asmjit::Label final_label;
+	print_line("endif");
+	IfContext current_if = if_contexts.back()->get();
+	if_contexts.pop_back();
 
-	if (!else_labels.is_empty()) {
-		final_label = else_labels.back()->get();
-		else_labels.pop_back();
+	if (current_if.has_else) {
+		cc.bind(current_if.end_label);
 	} else {
-		final_label = if_labels.back()->get();
+		cc.bind(current_if.if_false_label);
+		//cc.bind(current_if.end_label);
 	}
-
-	if_labels.pop_back();
-	cc.bind(final_label);
 
 	patch_jump(if_jmp_addrs.back()->get());
 	if_jmp_addrs.pop_back();
@@ -1741,10 +1749,62 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 
 	GDScriptFunction::Opcode begin_opcode = GDScriptFunction::OPCODE_ITERATE_BEGIN;
 	GDScriptFunction::Opcode iterate_opcode = GDScriptFunction::OPCODE_ITERATE;
+	Address temp;
+	if (p_use_conversion) {
+		temp = Address(Address::LOCAL_VARIABLE, add_local("@iterator_temp", GDScriptDataType()));
+	}
 
 	if (p_is_range) {
 		begin_opcode = GDScriptFunction::OPCODE_ITERATE_BEGIN_RANGE;
 		iterate_opcode = GDScriptFunction::OPCODE_ITERATE_RANGE;
+
+		asmjit::Label loop = cc.newLabel();
+		asmjit::Label exit = cc.newLabel();
+		asmjit::Label body = cc.newLabel();
+		for_jmp_labels.push_back(loop);
+		for_jmp_labels.push_back(exit);
+
+		Gp from = cc.newInt64("from");
+		Gp to = cc.newInt64("to");
+		Gp step = cc.newInt64("step");
+
+		mov_from_variant_mem(from, range_from, OFFSET_INT);
+		mov_from_variant_mem(to, range_to, OFFSET_INT);
+		mov_from_variant_mem(step, range_step, OFFSET_INT);
+
+		mov_to_variant_type_mem(counter, Variant::INT);
+		mov_to_variant_mem(counter, from, OFFSET_INT);
+
+		Gp condition = cc.newInt64("condition");
+		cc.mov(condition, to);
+		cc.sub(condition, from);
+		cc.imul(condition, step);
+
+		cc.cmp(condition, 0);
+		cc.jle(exit);
+
+		mov_to_variant_type_mem(p_use_conversion ? temp : p_variable, Variant::INT);
+		mov_to_variant_mem(p_use_conversion ? temp : p_variable, from, OFFSET_INT);
+
+		cc.jmp(body);
+
+		// ITERATE
+		cc.bind(loop);
+
+		Gp count = cc.newInt64("count");
+		mov_from_variant_mem(count, counter, OFFSET_INT);
+		cc.add(count, step);
+		mov_to_variant_mem(counter, count, OFFSET_INT);
+
+		cc.sub(count, to);
+		cc.imul(count, step);
+
+		cc.test(count, count);
+		cc.jge(exit);
+
+		mov_to_variant_mem(p_use_conversion ? temp : p_variable, count, OFFSET_INT);
+		cc.bind(body);
+
 	} else if (container.type.has_type) {
 		if (container.type.kind == GDScriptDataType::BUILTIN) {
 			switch (container.type.builtin_type) {
@@ -1833,11 +1893,6 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 		}
 	}
 
-	Address temp;
-	if (p_use_conversion) {
-		temp = Address(Address::LOCAL_VARIABLE, add_local("@iterator_temp", GDScriptDataType()));
-	}
-
 	// Begin loop.
 	append_opcode(begin_opcode);
 	append(counter);
@@ -1878,6 +1933,23 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 }
 
 void GDScriptJitCodeGenerator::write_endfor(bool p_is_range) {
+	asmjit::Label exit;
+	asmjit::Label loop;
+
+	if (!for_jmp_labels.is_empty()) {
+		exit = for_jmp_labels.back()->get();
+		for_jmp_labels.pop_back();
+	}
+	else print_line("Error: jmp empty, prob not implemented yet");
+	if (!for_jmp_labels.is_empty()) {
+		loop = for_jmp_labels.back()->get();
+		for_jmp_labels.pop_back();
+	}
+	else print_line("Error: jmp empty, prob not implemented yet");
+
+
+	cc.jmp(loop);
+	cc.bind(exit);
 	// Jump back to loop check.
 	append_opcode(GDScriptFunction::OPCODE_JUMP);
 	append(continue_addrs.back()->get());
@@ -2435,6 +2507,19 @@ void GDScriptJitCodeGenerator::mov_to_variant_type_mem(const Address &p_address,
 	}
 }
 
+void GDScriptJitCodeGenerator::create_patch(const Address &p_address, int operand_index, int offset) {
+	if (p_address.mode == Address::TEMPORARY) {
+		asmjit::BaseNode *node = cc.cursor();
+		MemoryPatch patch;
+		patch.node = node;
+		patch.operand_index = operand_index;
+		patch.temp_address = p_address.address;
+		patch.additional_offset = offset;
+		patch.patch_type = MemoryPatch::VARIANT_TYPE_MEM;
+		memory_patches.push_back(patch);
+	}
+}
+
 void GDScriptJitCodeGenerator::patch_memory_operands() {
 	int base_offset = (GDScriptFunction::FIXED_ADDRESSES_MAX + max_locals) * sizeof(Variant);
 
@@ -2621,41 +2706,55 @@ void GDScriptJitCodeGenerator::assign_bool(const Address &dst, bool value) {
 	}
 }
 
+void GDScriptJitCodeGenerator::assign_null(const Address &dst) {
+	Gp dst_ptr = get_variant_ptr(dst);
+
+	asmjit::InvokeNode *copy_invoke;
+	cc.invoke(&copy_invoke,
+			static_cast<void (*)(Variant *)>([](Variant *i_dst) {
+				*i_dst = Variant();
+			}),
+			asmjit::FuncSignature::build<void, Variant *>());
+	copy_invoke->setArg(0, dst_ptr);
+}
+
 //todo all op
 void GDScriptJitCodeGenerator::handle_int_operation(Variant::Operator p_operator, const Address &p_left, const Address &p_right, const Address &p_result) {
 	Gp left = cc.newInt64();
-	Gp right = cc.newInt64();
+	Mem right = get_variant_mem(p_right, OFFSET_INT);
 
 	mov_from_variant_mem(left, p_left, OFFSET_INT);
-	mov_from_variant_mem(right, p_right, OFFSET_INT);
 
 	switch (p_operator) {
 		case Variant::OP_ADD:
 			cc.add(left, right);
+			create_patch(p_right, 1, OFFSET_INT);
 			break;
 		case Variant::OP_SUBTRACT:
 			cc.sub(left, right);
+			create_patch(p_right, 1, OFFSET_INT);
 			break;
 		case Variant::OP_MULTIPLY:
 			cc.imul(left, right);
+			create_patch(p_right, 1, OFFSET_INT);
 			break;
 		case Variant::OP_EQUAL:
-			gen_compare_int(left, right, p_result, Arch::CondCode::kEqual);
+			gen_compare_int(left, right, p_right, Arch::CondCode::kEqual);
 			break;
 		case Variant::OP_NOT_EQUAL:
-			gen_compare_int(left, right, p_result, Arch::CondCode::kNotEqual);
+			gen_compare_int(left, right, p_right, Arch::CondCode::kNotEqual);
 			break;
 		case Variant::OP_LESS:
-			gen_compare_int(left, right, p_result, Arch::CondCode::kL);
+			gen_compare_int(left, right, p_right, Arch::CondCode::kL);
 			break;
 		case Variant::OP_LESS_EQUAL:
-			gen_compare_int(left, right, p_result, Arch::CondCode::kLE);
+			gen_compare_int(left, right, p_right, Arch::CondCode::kLE);
 			break;
 		case Variant::OP_GREATER:
-			gen_compare_int(left, right, p_result, Arch::CondCode::kG);
+			gen_compare_int(left, right, p_right, Arch::CondCode::kG);
 			break;
 		case Variant::OP_GREATER_EQUAL:
-			gen_compare_int(left, right, p_result, Arch::CondCode::kGE);
+			gen_compare_int(left, right, p_right, Arch::CondCode::kGE);
 			break;
 		default: {
 			print_error("Unsupported int operation");
@@ -2677,8 +2776,9 @@ void GDScriptJitCodeGenerator::handle_int_operation(Variant::Operator p_operator
 	mov_to_variant_mem(p_result, left, OFFSET_INT);
 }
 
-void GDScriptJitCodeGenerator::gen_compare_int(Gp &lhs, Gp &rhs, const Address &p_result, Arch::CondCode code) {
+void GDScriptJitCodeGenerator::gen_compare_int(Gp &lhs, Mem &rhs, const Address &p_right, Arch::CondCode code) {
 	cc.cmp(lhs, rhs);
+	create_patch(p_right, 1, OFFSET_INT);
 	cc.set(code, lhs.r8());
 	cc.movzx(lhs, lhs.r8());
 }

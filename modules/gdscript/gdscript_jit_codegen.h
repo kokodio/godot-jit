@@ -97,8 +97,15 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		PatchType patch_type;
 	};
 
+	struct IfContext {
+		asmjit::Label if_false_label;
+		asmjit::Label end_label;
+		bool has_else = false;
+	};
+
 	Compiler cc;
 	asmjit::StringLogger stringLogger;
+	uint64_t start_time;
 
 	Gp result_ptr;
 	Gp constants_ptr;
@@ -110,9 +117,8 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	Gp bool_ptr;
 
 	Vector<MemoryPatch> memory_patches;
-
-	List<asmjit::Label> if_labels;
-	List<asmjit::Label> else_labels;
+	List<IfContext> if_contexts;
+	List<asmjit::Label> for_jmp_labels;
 
 	void patch_memory_operands();
 
@@ -604,6 +610,7 @@ public:
 	void copy_variant(Gp &dst_ptr, Gp &src_ptr);
 	void assign(const Address &src, const Address &dst);
 	void assign_bool(const Address &dst, bool value);
+	void assign_null(const Address &dst);
 
 	template <typename RegT>
 	void mov_from_variant_mem(const RegT &dst, const Address &p_address, int offset = 0);
@@ -615,7 +622,9 @@ public:
 	void mov_to_variant_type_mem(const Address &p_address, int type_value, int offset = 0);
 
 	void handle_int_operation(Variant::Operator p_operator, const Address &left, const Address &right, const Address &result);
-	void gen_compare_int(Gp &lhs, Gp &rhs, const Address &p_result, Arch::CondCode cc);
+	void gen_compare_int(Gp &lhs, Mem &rhs, const Address &p_result, Arch::CondCode cc);
+
+	void create_patch(const Address &p_address, int operand_index, int offset);
 
 	virtual ~GDScriptJitCodeGenerator();
 	GDScriptJitCodeGenerator();
