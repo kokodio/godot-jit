@@ -83,8 +83,23 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		CallTarget &operator=(CallTarget &) = delete;
 	};
 
+	struct MemoryPatch {
+		enum PatchType {
+			VARIANT_PTR,
+			VARIANT_MEM,
+			VARIANT_TYPE_MEM
+		};
+
+		asmjit::BaseNode *node;
+		int operand_index;
+		int temp_address;
+		int additional_offset = 0;
+		PatchType patch_type;
+	};
+
 	struct JitContext {
 		Compiler cc;
+		asmjit::StringLogger stringLogger;
 
 		Gp result_ptr;
 		Gp constants_ptr;
@@ -95,13 +110,21 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		Gp operator_ptr;
 		Gp bool_ptr;
 
+		Vector<MemoryPatch> memory_patches;
+		List<asmjit::Label> if_labels;
+		List<asmjit::Label> else_labels;
+
 		JitContext() :
-				cc(&JitRuntimeManager::get_singleton()->get_code()) {}
+				cc(&JitRuntimeManager::get_singleton()->get_code()) {
+			JitRuntimeManager::get_singleton()->get_code().setLogger(&stringLogger);
+		}
 
 		~JitContext() {
 			JitRuntimeManager::get_singleton()->get_code().reinit();
 		}
 	};
+
+	void patch_memory_operands();
 
 	JitContext jit_context;
 
@@ -587,9 +610,37 @@ public:
 	void print_address(const Address &p_address, const String &p_label = "");
 	void decode_address(const Address &p_address, int &address_type, int &address_index);
 	Gp get_variant_ptr(const Address &p_address);
-	Mem get_variant_mem(const Address &p_address, int offset_field);
-	Mem get_variant_type_mem(const Address &p_address, int offset);
+	Mem get_variant_mem(const Address &p_address, int offset);
+	Mem get_variant_type_mem(const Address &p_address, int offset = 0);
 	void copy_variant(Gp &dst_ptr, Gp &src_ptr);
+	void assign(const Address &src, const Address &dst);
+
+	template <typename RegT>
+	void mov_from_variant_mem(const RegT &dst, const Address &p_address, int offset = 0);
+
+	template <typename RegT>
+	void mov_to_variant_mem(const Address &p_address, const RegT &src, int offset = 0);
+
+	void mov_from_variant_type_mem(const Gp &dst, const Address &p_address, int offset = 0);
+	void mov_to_variant_type_mem(const Address &p_address, int type_value, int offset = 0);
 
 	virtual ~GDScriptJitCodeGenerator();
+
+	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
+
+	static constexpr int OFFSET_DATA = offsetof(Variant, _data);
+	static constexpr int OFFSET_INT_IN_DATA = offsetof(decltype(Variant::_data), _int);
+	static constexpr int OFFSET_INT = OFFSET_DATA + OFFSET_INT_IN_DATA;
+
+	static constexpr int OFFSET_FLOAT_IN_DATA = offsetof(decltype(Variant::_data), _float);
+	static constexpr int OFFSET_FLOAT = OFFSET_DATA + OFFSET_FLOAT_IN_DATA;
+
+	static constexpr int OFFSET_BOOL_IN_DATA = offsetof(decltype(Variant::_data), _bool);
+	static constexpr int OFFSET_BOOL = OFFSET_DATA + OFFSET_BOOL_IN_DATA;
+
+	static constexpr int OFFSET_MEM_IN_DATA = offsetof(decltype(Variant::_data), _mem);
+	static constexpr int OFFSET_MEM = OFFSET_DATA + OFFSET_MEM_IN_DATA;
+
+	static constexpr int OFFSET_VECTOR2_X = OFFSET_MEM + offsetof(Vector2, x);
+	static constexpr int OFFSET_VECTOR2_Y = OFFSET_MEM + offsetof(Vector2, y);
 };
