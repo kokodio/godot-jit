@@ -32,6 +32,20 @@
 
 #include "core/debugger/engine_debugger.h"
 
+//todo
+extern "C" {
+void call_variant_method(Variant &base, const StringName &method_name, const Variant **args, int argc, Variant &result, Callable::CallError &error) {
+	base.callp(method_name, args, argc, result, error);
+}
+
+void get_keyed(const Variant *base, const Variant *key, Variant *result, bool *valid) {
+	*result = base->get(*key, valid);
+}
+void set_keyed(Variant *base, const Variant *key, const Variant *value, bool *valid) {
+	base->set(*key, *value, valid);
+}
+}
+
 uint32_t GDScriptJitCodeGenerator::add_parameter(const StringName &p_name, bool p_is_optional, const GDScriptDataType &p_type) {
 	function->_argument_count++;
 	function->argument_types.push_back(p_type);
@@ -212,8 +226,6 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 			function->temporary_slots[stack_index] = temporaries[i].type;
 		}
 	}
-
-	patch_memory_operands();
 
 	if (constant_map.size()) {
 		function->_constant_count = constant_map.size();
@@ -429,6 +441,7 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 	function->utilities_names = utilities_names;
 	function->gds_utilities_names = gds_utilities_names;
 #endif
+	patch_jit();
 
 	cc.endFunc();
 	cc.finalize();
@@ -662,7 +675,64 @@ void GDScriptJitCodeGenerator::write_binary_operator(const Address &p_target, Va
 		// Gather specific operator.
 		Variant::ValidatedOperatorEvaluator op_func = Variant::get_validated_operator_evaluator(p_operator, p_left_operand.type.builtin_type, p_right_operand.type.builtin_type);
 
-		if (p_left_operand.type.builtin_type == Variant::INT && p_right_operand.type.builtin_type == Variant::INT) {
+		if (p_left_operand.type.builtin_type == Variant::FLOAT || p_right_operand.type.builtin_type == Variant::FLOAT) {
+			Vec left_val = cc.newXmmSd();
+			Vec right_val = cc.newXmmSd();
+
+			if (p_left_operand.type.builtin_type == Variant::INT && p_right_operand.type.builtin_type == Variant::FLOAT) {
+				cc.cvtsi2sd(left_val, get_variant_mem(p_left_operand, OFFSET_INT));
+				create_patch(p_left_operand, 1, OFFSET_INT);
+				mov_from_variant_mem(right_val, p_right_operand, OFFSET_FLOAT);
+			} else if (p_left_operand.type.builtin_type == Variant::FLOAT && p_right_operand.type.builtin_type == Variant::INT) {
+				mov_from_variant_mem(left_val, p_left_operand, OFFSET_FLOAT);
+				cc.cvtsi2sd(right_val, get_variant_mem(p_right_operand, OFFSET_INT));
+				create_patch(p_right_operand, 1, OFFSET_INT);
+			} else {
+				mov_from_variant_mem(left_val, p_left_operand, OFFSET_FLOAT);
+				mov_from_variant_mem(right_val, p_right_operand, OFFSET_FLOAT);
+			}
+
+			switch (p_operator) {
+				case Variant::OP_ADD: {
+					cc.addsd(left_val, right_val);
+					mov_to_variant_mem(p_target, left_val, OFFSET_FLOAT);
+				} break;
+				case Variant::OP_SUBTRACT: {
+					cc.subsd(left_val, right_val);
+					mov_to_variant_mem(p_target, left_val, OFFSET_FLOAT);
+				} break;
+				case Variant::OP_MULTIPLY: {
+					cc.mulsd(left_val, right_val);
+					mov_to_variant_mem(p_target, left_val, OFFSET_FLOAT);
+				} break;
+				case Variant::OP_DIVIDE: {
+					cc.divsd(left_val, right_val);
+					mov_to_variant_mem(p_target, left_val, OFFSET_FLOAT);
+				} break;
+				case Variant::OP_EQUAL:
+					gen_compare_float(left_val, right_val, p_target, Arch::CondCode::kE);
+					break;
+				case Variant::OP_NOT_EQUAL:
+					gen_compare_float(left_val, right_val, p_target, Arch::CondCode::kNE);
+					break;
+				case Variant::OP_LESS:
+					gen_compare_float(left_val, right_val, p_target, Arch::CondCode::kB);
+					break;
+				case Variant::OP_LESS_EQUAL:
+					gen_compare_float(left_val, right_val, p_target, Arch::CondCode::kBE);
+					break;
+				case Variant::OP_GREATER:
+					gen_compare_float(left_val, right_val, p_target, Arch::CondCode::kA);
+					break;
+				case Variant::OP_GREATER_EQUAL:
+					gen_compare_float(left_val, right_val, p_target, Arch::CondCode::kAE);
+					break;
+				default: {
+					print_error("Unsupported float operation ");
+					return;
+				}
+			}
+		} else if (p_left_operand.type.builtin_type == Variant::INT && p_right_operand.type.builtin_type == Variant::INT) {
 			handle_int_operation(p_operator, p_left_operand, p_right_operand, p_target);
 		} else {
 			Gp left_ptr = get_variant_ptr(p_left_operand);
@@ -894,6 +964,25 @@ void GDScriptJitCodeGenerator::write_set(const Address &p_target, const Address 
 				IS_BUILTIN_TYPE(p_source, Variant::get_indexed_element_type(p_target.type.builtin_type))) {
 			// Use indexed setter instead.
 			Variant::ValidatedIndexedSetter setter = Variant::get_member_validated_indexed_setter(p_target.type.builtin_type);
+
+			Gp base_ptr = get_variant_ptr(p_target);
+			Gp src_ptr = get_variant_ptr(p_source);
+			Gp index_val = cc.newInt64("index_val");
+
+			mov_from_variant_mem(index_val, p_index, OFFSET_INT);
+
+			Mem bool_mem = cc.newStack(sizeof(bool), 16); //todo
+			bool_ptr = cc.newIntPtr("bool_ptr");
+			cc.lea(bool_ptr, bool_mem);
+			cc.mov(asmjit::x86::byte_ptr(bool_ptr), 1);
+
+			asmjit::InvokeNode *setter_invoke;
+			cc.invoke(&setter_invoke, setter, asmjit::FuncSignature::build<void, Variant *, int64_t, const Variant *, bool *>());
+			setter_invoke->setArg(0, base_ptr);
+			setter_invoke->setArg(1, src_ptr);
+			setter_invoke->setArg(2, index_val);
+			setter_invoke->setArg(3, bool_ptr);
+
 			append_opcode(GDScriptFunction::OPCODE_SET_INDEXED_VALIDATED);
 			append(p_target);
 			append(p_index);
@@ -911,6 +1000,23 @@ void GDScriptJitCodeGenerator::write_set(const Address &p_target, const Address 
 		}
 	}
 
+	Gp base_ptr = get_variant_ptr(p_target);
+	Gp src_ptr = get_variant_ptr(p_index);
+	Gp index_val = get_variant_ptr(p_source);
+
+	Mem bool_mem = cc.newStack(sizeof(bool), 16); //todo
+	bool_ptr = cc.newIntPtr("bool_ptr");
+	cc.lea(bool_ptr, bool_mem);
+	cc.mov(asmjit::x86::byte_ptr(bool_ptr), 1);
+
+	asmjit::InvokeNode *set_invoke;
+	cc.invoke(&set_invoke, &set_keyed,
+			asmjit::FuncSignature::build<void, Variant *, const Variant *, const Variant *, bool *>());
+	set_invoke->setArg(0, base_ptr);
+	set_invoke->setArg(1, src_ptr);
+	set_invoke->setArg(2, index_val);
+	set_invoke->setArg(3, bool_ptr);
+
 	append_opcode(GDScriptFunction::OPCODE_SET_KEYED);
 	append(p_target);
 	append(p_index);
@@ -922,6 +1028,26 @@ void GDScriptJitCodeGenerator::write_get(const Address &p_target, const Address 
 		if (IS_BUILTIN_TYPE(p_index, Variant::INT) && Variant::get_member_validated_indexed_getter(p_source.type.builtin_type)) {
 			// Use indexed getter instead.
 			Variant::ValidatedIndexedGetter getter = Variant::get_member_validated_indexed_getter(p_source.type.builtin_type);
+
+			Gp base_ptr = get_variant_ptr(p_source);
+			Gp dst_ptr = get_variant_ptr(p_target);
+
+			Gp index_val = cc.newInt64("index_val");
+			mov_from_variant_mem(index_val, p_index, OFFSET_INT);
+
+			Mem bool_mem = cc.newStack(sizeof(bool), 16); //todo
+			bool_ptr = cc.newIntPtr("bool_ptr");
+			cc.lea(bool_ptr, bool_mem);
+			cc.mov(asmjit::x86::byte_ptr(bool_ptr), 0);
+
+			asmjit::InvokeNode *getter_invoke;
+			cc.invoke(&getter_invoke, getter,
+					asmjit::FuncSignature::build<void, const Variant *, int64_t, Variant *, bool *>());
+			getter_invoke->setArg(0, base_ptr);
+			getter_invoke->setArg(1, index_val);
+			getter_invoke->setArg(2, dst_ptr);
+			getter_invoke->setArg(3, bool_ptr);
+
 			append_opcode(GDScriptFunction::OPCODE_GET_INDEXED_VALIDATED);
 			append(p_source);
 			append(p_index);
@@ -948,6 +1074,16 @@ void GDScriptJitCodeGenerator::write_set_named(const Address &p_target, const St
 	if (HAS_BUILTIN_TYPE(p_target) && Variant::get_member_validated_setter(p_target.type.builtin_type, p_name) &&
 			IS_BUILTIN_TYPE(p_source, Variant::get_member_type(p_target.type.builtin_type, p_name))) {
 		Variant::ValidatedSetter setter = Variant::get_member_validated_setter(p_target.type.builtin_type, p_name);
+
+		Gp source_ptr = get_variant_ptr(p_source);
+		Gp target_ptr = get_variant_ptr(p_target);
+
+		asmjit::InvokeNode *setter_invoke;
+		cc.invoke(&setter_invoke, setter,
+				asmjit::FuncSignature::build<void, Variant *, const Variant *>());
+		setter_invoke->setArg(0, target_ptr);
+		setter_invoke->setArg(1, source_ptr);
+
 		append_opcode(GDScriptFunction::OPCODE_SET_NAMED_VALIDATED);
 		append(p_target);
 		append(p_source);
@@ -957,6 +1093,31 @@ void GDScriptJitCodeGenerator::write_set_named(const Address &p_target, const St
 #endif
 		return;
 	}
+
+	Gp base_ptr = get_variant_ptr(p_target);
+	Gp source_ptr = get_variant_ptr(p_source);
+
+	Mem bool_mem = cc.newStack(sizeof(bool), 16);
+	bool_ptr = cc.newIntPtr("bool_ptr");
+	cc.lea(bool_ptr, bool_mem);
+	cc.mov(asmjit::x86::byte_ptr(bool_ptr), 1);
+
+	asmjit::InvokeNode *set_invoke;
+	cc.invoke(&set_invoke,
+			static_cast<void (*)(Variant *, const StringName &, const Variant &, bool &)>([](Variant *base, const StringName &name, const Variant &value, bool &valid) {
+				base->set_named(name, value, valid);
+			}),
+			asmjit::FuncSignature::build<void, Variant *, const StringName &, const Variant &, bool &>());
+	set_invoke->setArg(0, base_ptr);
+	set_invoke->setArg(2, source_ptr);
+	set_invoke->setArg(3, bool_ptr);
+
+	NamePatch name_patch;
+	name_patch.arg_index = 1;
+	name_patch.invoke_node = set_invoke;
+	name_patch.name_index = get_name_map_pos(p_name);
+	name_patches.push_back(name_patch);
+
 	append_opcode(GDScriptFunction::OPCODE_SET_NAMED);
 	append(p_target);
 	append(p_source);
@@ -966,6 +1127,16 @@ void GDScriptJitCodeGenerator::write_set_named(const Address &p_target, const St
 void GDScriptJitCodeGenerator::write_get_named(const Address &p_target, const StringName &p_name, const Address &p_source) {
 	if (HAS_BUILTIN_TYPE(p_source) && Variant::get_member_validated_getter(p_source.type.builtin_type, p_name)) {
 		Variant::ValidatedGetter getter = Variant::get_member_validated_getter(p_source.type.builtin_type, p_name);
+
+		Gp source_ptr = get_variant_ptr(p_source);
+		Gp target_ptr = get_variant_ptr(p_target);
+
+		asmjit::InvokeNode *getter_invoke;
+		cc.invoke(&getter_invoke, getter,
+				asmjit::FuncSignature::build<void, const Variant *, Variant *>());
+		getter_invoke->setArg(0, source_ptr);
+		getter_invoke->setArg(1, target_ptr);
+
 		append_opcode(GDScriptFunction::OPCODE_GET_NAMED_VALIDATED);
 		append(p_source);
 		append(p_target);
@@ -975,6 +1146,31 @@ void GDScriptJitCodeGenerator::write_get_named(const Address &p_target, const St
 #endif
 		return;
 	}
+
+	Gp source_ptr = get_variant_ptr(p_source);
+	Gp target_ptr = get_variant_ptr(p_target);
+
+	Mem bool_mem = cc.newStack(sizeof(bool), 16); //todo
+	bool_ptr = cc.newIntPtr("bool_ptr");
+	cc.lea(bool_ptr, bool_mem);
+	cc.mov(asmjit::x86::byte_ptr(bool_ptr), 1);
+
+	asmjit::InvokeNode *get_invoke;
+	cc.invoke(&get_invoke,
+			static_cast<void (*)(const Variant *, const StringName &, Variant *, bool &)>([](const Variant *base, const StringName &name, Variant *result, bool &valid) {
+				*result = base->get_named(name, valid);
+			}),
+			asmjit::FuncSignature::build<void, const Variant *, const StringName &, Variant *, bool &>());
+	get_invoke->setArg(0, source_ptr);
+	get_invoke->setArg(2, target_ptr);
+	get_invoke->setArg(3, bool_ptr);
+
+	NamePatch name_patch;
+	name_patch.arg_index = 1;
+	name_patch.invoke_node = get_invoke;
+	name_patch.name_index = get_name_map_pos(p_name);
+	name_patches.push_back(name_patch);
+
 	append_opcode(GDScriptFunction::OPCODE_GET_NAMED);
 	append(p_source);
 	append(p_target);
@@ -1265,6 +1461,16 @@ void GDScriptJitCodeGenerator::write_call_utility(const Address &p_target, const
 		if (result_type != temp_type) {
 			write_type_adjust(ct.target, result_type);
 		}
+
+		Gp args_array = prepare_args_array(p_arguments);
+		Gp dst_ptr = get_variant_ptr(ct.target);
+
+		asmjit::InvokeNode *utility_invoke;
+		cc.invoke(&utility_invoke, Variant::get_validated_utility_function(p_function), asmjit::FuncSignature::build<void, Variant *, const Variant **, int>());
+		utility_invoke->setArg(0, dst_ptr);
+		utility_invoke->setArg(1, args_array);
+		utility_invoke->setArg(2, p_arguments.size());
+
 		append_opcode_and_argcount(GDScriptFunction::OPCODE_CALL_UTILITY_VALIDATED, 1 + p_arguments.size());
 		for (int i = 0; i < p_arguments.size(); i++) {
 			append(p_arguments[i]);
@@ -1334,6 +1540,18 @@ void GDScriptJitCodeGenerator::write_call_builtin_type(const Address &p_target, 
 	}
 
 	append_opcode_and_argcount(GDScriptFunction::OPCODE_CALL_BUILTIN_TYPE_VALIDATED, 2 + p_arguments.size());
+
+	Gp base_ptr = get_variant_ptr(p_base);
+	Gp dst_ptr = get_variant_ptr(ct.target);
+	Gp args_array = prepare_args_array(p_arguments);
+
+	asmjit::InvokeNode *call_invoke;
+	cc.invoke(&call_invoke, Variant::get_validated_builtin_method(p_type, p_method),
+			asmjit::FuncSignature::build<void, Variant *, const Variant **, int, Variant *>());
+	call_invoke->setArg(0, base_ptr);
+	call_invoke->setArg(1, args_array);
+	call_invoke->setArg(2, p_arguments.size());
+	call_invoke->setArg(3, dst_ptr);
 
 	for (int i = 0; i < p_arguments.size(); i++) {
 		append(p_arguments[i]);
@@ -1436,6 +1654,36 @@ void GDScriptJitCodeGenerator::write_call_method_bind_validated(const Address &p
 
 	GDScriptFunction::Opcode code = p_method->has_return() ? GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN : GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_NO_RETURN;
 	append_opcode_and_argcount(code, 2 + p_arguments.size());
+
+	Gp base_ptr = get_variant_ptr(p_base);
+	Gp dst_ptr = get_variant_ptr(ct.target);
+
+	Gp base_obj = cc.newIntPtr("base_obj");
+	cc.mov(base_obj, Arch::ptr(base_ptr, offsetof(Variant, _data) + offsetof(Variant::ObjData, obj)));
+
+	Gp args_array = prepare_args_array(p_arguments);
+
+	asmjit::InvokeNode *method_invoke;
+	if (code == GDScriptFunction::OPCODE_CALL_METHOD_BIND_VALIDATED_RETURN) {
+		cc.invoke(&method_invoke,
+				static_cast<void (*)(MethodBind *, Object *, const Variant **, Variant *)>(
+						[](MethodBind *method_p, Object *obj, const Variant **args, Variant *ret) {
+							method_p->validated_call(obj, args, ret);
+						}),
+				asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, Variant *>());
+	} else {
+		cc.invoke(&method_invoke,
+				static_cast<void (*)(MethodBind *, Object *, const Variant **, Variant *)>(
+						[](MethodBind *method_p, Object *obj, const Variant **args, Variant *ret) {
+							VariantInternal::initialize(ret, Variant::NIL);
+							method_p->validated_call(obj, args, nullptr);
+						}),
+				asmjit::FuncSignature::build<void, MethodBind *, Object *, const Variant **, Variant *>());
+	}
+	method_invoke->setArg(0, p_method);
+	method_invoke->setArg(1, base_obj);
+	method_invoke->setArg(2, args_array);
+	method_invoke->setArg(3, dst_ptr);
 
 	for (int i = 0; i < p_arguments.size(); i++) {
 		append(p_arguments[i]);
@@ -2086,7 +2334,27 @@ void GDScriptJitCodeGenerator::write_return(const Address &p_return_value) {
 				append(value_type.builtin_type);
 				append(value_type.native_type);
 			} else if (function->return_type.kind == GDScriptDataType::BUILTIN && p_return_value.type.kind == GDScriptDataType::BUILTIN && function->return_type.builtin_type != p_return_value.type.builtin_type) {
-				// Add conversion.
+				Gp src_ptr = get_variant_ptr(p_return_value);
+				Gp args_array = cc.newIntPtr("cast_args_array");
+				cc.lea(args_array, cc.newStack(PTR_SIZE, 16));
+				cc.mov(Arch::ptr(args_array, 0), src_ptr);
+
+				Mem mem = cc.newStack(sizeof(Callable::CallError), 16);
+				call_error_ptr = cc.newIntPtr("call_error_ptr");
+				cc.lea(call_error_ptr, mem);
+				cc.mov(asmjit::x86::dword_ptr(call_error_ptr), (int)Callable::CallError::CALL_OK);
+				cc.mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)function->return_type.builtin_type);
+
+				asmjit::InvokeNode *construct_invoke;
+				cc.invoke(&construct_invoke, &Variant::construct,
+						asmjit::FuncSignature::build<void, Variant::Type, Variant &, const Variant **, int, Callable::CallError &>());
+				construct_invoke->setArg(0, function->return_type.builtin_type);
+				construct_invoke->setArg(1, result_ptr);
+				construct_invoke->setArg(2, args_array);
+				construct_invoke->setArg(3, 1);
+				construct_invoke->setArg(4, call_error_ptr);
+				cc.ret();
+
 				append_opcode(GDScriptFunction::OPCODE_RETURN_TYPED_BUILTIN);
 				append(p_return_value);
 				append(function->return_type.builtin_type);
@@ -2134,6 +2402,26 @@ void GDScriptJitCodeGenerator::write_return(const Address &p_return_value) {
 					append(value_type.builtin_type);
 					append(value_type.native_type);
 				} else {
+					Gp src_ptr = get_variant_ptr(p_return_value);
+					Gp args_array = cc.newIntPtr("cast_args_array");
+					cc.lea(args_array, cc.newStack(PTR_SIZE, 16));
+					cc.mov(Arch::ptr(args_array, 0), src_ptr);
+
+					Mem mem = cc.newStack(sizeof(Callable::CallError), 16);
+					call_error_ptr = cc.newIntPtr("call_error_ptr");
+					cc.lea(call_error_ptr, mem);
+					cc.mov(asmjit::x86::dword_ptr(call_error_ptr), (int)Callable::CallError::CALL_OK);
+					cc.mov(asmjit::x86::dword_ptr(result_ptr, 0), (int)function->return_type.builtin_type);
+
+					asmjit::InvokeNode *construct_invoke;
+					cc.invoke(&construct_invoke, &Variant::construct,
+							asmjit::FuncSignature::build<void, Variant::Type, Variant &, const Variant **, int, Callable::CallError &>());
+					construct_invoke->setArg(0, function->return_type.builtin_type);
+					construct_invoke->setArg(1, result_ptr);
+					construct_invoke->setArg(2, args_array);
+					construct_invoke->setArg(3, 1);
+					construct_invoke->setArg(4, call_error_ptr);
+					cc.ret();
 					append_opcode(GDScriptFunction::OPCODE_RETURN_TYPED_BUILTIN);
 					append(p_return_value);
 					append(function->return_type.builtin_type);
@@ -2542,7 +2830,7 @@ void GDScriptJitCodeGenerator::create_patch(const Address &p_address, int operan
 	}
 }
 
-void GDScriptJitCodeGenerator::patch_memory_operands() {
+void GDScriptJitCodeGenerator::patch_jit() {
 	int base_offset = (GDScriptFunction::FIXED_ADDRESSES_MAX + max_locals) * sizeof(Variant);
 
 	for (const MemoryPatch &patch : memory_patches) {
@@ -2567,7 +2855,12 @@ void GDScriptJitCodeGenerator::patch_memory_operands() {
 		}
 	}
 
+	for (const NamePatch &patch : name_patches) {
+		patch.invoke_node->setArg(patch.arg_index, &function->_global_names_ptr[patch.name_index]);
+	}
+
 	memory_patches.clear();
+	name_patches.clear();
 }
 
 //todo
@@ -2803,4 +3096,32 @@ void GDScriptJitCodeGenerator::gen_compare_int(Gp &lhs, Mem &rhs, const Address 
 	create_patch(p_right, 1, OFFSET_INT);
 	cc.set(code, lhs.r8());
 	cc.movzx(lhs, lhs.r8());
+}
+
+void GDScriptJitCodeGenerator::gen_compare_float(Vec &lhs, Vec &rhs, const Address &result_addr, Arch::CondCode code) {
+	cc.comisd(lhs, rhs);
+	cc.set(code, get_variant_mem(result_addr, OFFSET_BOOL));
+	create_patch(result_addr, 0, OFFSET_BOOL);
+}
+
+Gp GDScriptJitCodeGenerator::prepare_args_array(const Vector<Address> &p_args) {
+	Gp args_array = cc.newIntPtr("args_array");
+
+	if (p_args.size() > 0) {
+		int args_array_size = p_args.size() * PTR_SIZE;
+		Mem args_stack = cc.newStack(args_array_size, 16);
+		cc.lea(args_array, args_stack);
+
+		for (int i = 0; i < p_args.size(); i++) {
+			const Address &arg_addr = p_args[i];
+
+			Gp arg_ptr = get_variant_ptr(arg_addr);
+
+			cc.mov(Arch::ptr(args_array, i * PTR_SIZE), arg_ptr);
+		}
+	} else {
+		cc.xor_(args_array, args_array);
+	}
+
+	return args_array;
 }

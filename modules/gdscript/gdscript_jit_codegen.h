@@ -97,6 +97,12 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		PatchType patch_type;
 	};
 
+	struct NamePatch {
+		asmjit::InvokeNode *invoke_node;
+		int name_index;
+		int arg_index;
+	};
+
 	struct IfContext {
 		asmjit::Label if_false_label;
 		asmjit::Label end_label;
@@ -122,10 +128,11 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	Gp bool_ptr;
 
 	Vector<MemoryPatch> memory_patches;
+	Vector<NamePatch> name_patches;
 	List<IfContext> if_contexts;
 	List<LoopContext> for_jmp_labels;
 
-	void patch_memory_operands();
+	void patch_jit();
 
 	bool ended = false;
 	GDScriptFunction *function = nullptr;
@@ -628,13 +635,17 @@ public:
 
 	void handle_int_operation(Variant::Operator p_operator, const Address &left, const Address &right, const Address &result);
 	void gen_compare_int(Gp &lhs, Mem &rhs, const Address &p_result, Arch::CondCode cc);
+	void gen_compare_float(Vec &lhs, Vec &rhs, const Address &result_addr, Arch::CondCode cc);
 
 	void create_patch(const Address &p_address, int operand_index, int offset);
+
+	Gp prepare_args_array(const Vector<Address> &p_args);
 
 	virtual ~GDScriptJitCodeGenerator();
 	GDScriptJitCodeGenerator();
 
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
+	static constexpr int PTR_SIZE = sizeof(void *);
 
 	static constexpr int OFFSET_DATA = offsetof(Variant, _data);
 	static constexpr int OFFSET_INT_IN_DATA = offsetof(decltype(Variant::_data), _int);
