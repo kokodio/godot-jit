@@ -689,6 +689,31 @@ void GDScriptJitCodeGenerator::write_binary_operator(const Address &p_target, Va
 		return;
 	}
 
+	Gp left_ptr = get_variant_ptr(p_left_operand);
+	Gp right_ptr = get_variant_ptr(p_right_operand);
+	Gp dst_ptr = get_variant_ptr(p_target);
+
+	//todo
+	constexpr size_t combined_size = ((sizeof(Variant::Operator) + sizeof(bool) + 7) & ~7);
+	Mem combined_mem = cc.newStack(combined_size, 16);
+
+	operator_ptr = cc.newIntPtr("operator_ptr");
+	cc.lea(operator_ptr, combined_mem);
+	cc.mov(asmjit::x86::dword_ptr(operator_ptr), p_operator);
+
+	bool_ptr = cc.newIntPtr("bool_ptr");
+	cc.lea(bool_ptr, combined_mem.cloneAdjusted(sizeof(Variant::Operator)));
+	cc.mov(asmjit::x86::byte_ptr(bool_ptr), 1);
+
+	asmjit::InvokeNode *evaluate_invoke;
+	cc.invoke(&evaluate_invoke, static_cast<void (*)(const Variant::Operator &, const Variant &, const Variant &, Variant &, bool &)>(&Variant::evaluate),
+			asmjit::FuncSignature::build<void, const Variant::Operator &, const Variant &, const Variant &, Variant &, bool &>());
+	evaluate_invoke->setArg(0, operator_ptr);
+	evaluate_invoke->setArg(1, left_ptr);
+	evaluate_invoke->setArg(2, right_ptr);
+	evaluate_invoke->setArg(3, dst_ptr);
+	evaluate_invoke->setArg(4, bool_ptr);
+
 	// No specific types, perform variant evaluation.
 	append_opcode(GDScriptFunction::OPCODE_OPERATOR);
 	append(p_left_operand);
@@ -1758,11 +1783,12 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 		begin_opcode = GDScriptFunction::OPCODE_ITERATE_BEGIN_RANGE;
 		iterate_opcode = GDScriptFunction::OPCODE_ITERATE_RANGE;
 
-		asmjit::Label loop = cc.newLabel();
-		asmjit::Label exit = cc.newLabel();
 		asmjit::Label body = cc.newLabel();
-		for_jmp_labels.push_back(loop);
-		for_jmp_labels.push_back(exit);
+
+		LoopContext loop_context;
+		loop_context.loop = cc.newLabel();
+		loop_context.exit = cc.newLabel();
+		for_jmp_labels.push_back(loop_context);
 
 		Gp from = cc.newInt64("from");
 		Gp to = cc.newInt64("to");
@@ -1781,7 +1807,7 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 		cc.imul(condition, step);
 
 		cc.cmp(condition, 0);
-		cc.jle(exit);
+		cc.jle(loop_context.exit);
 
 		mov_to_variant_type_mem(p_use_conversion ? temp : p_variable, Variant::INT);
 		mov_to_variant_mem(p_use_conversion ? temp : p_variable, from, OFFSET_INT);
@@ -1789,18 +1815,19 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 		cc.jmp(body);
 
 		// ITERATE
-		cc.bind(loop);
+		cc.bind(loop_context.loop);
 
 		Gp count = cc.newInt64("count");
 		mov_from_variant_mem(count, counter, OFFSET_INT);
 		cc.add(count, step);
 		mov_to_variant_mem(counter, count, OFFSET_INT);
 
-		cc.sub(count, to);
-		cc.imul(count, step);
+		cc.mov(condition, count);
+		cc.sub(condition, to);
+		cc.imul(condition, step);
 
-		cc.test(count, count);
-		cc.jge(exit);
+		cc.test(condition, condition);
+		cc.jge(loop_context.exit);
 
 		mov_to_variant_mem(p_use_conversion ? temp : p_variable, count, OFFSET_INT);
 		cc.bind(body);
@@ -1933,23 +1960,12 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 }
 
 void GDScriptJitCodeGenerator::write_endfor(bool p_is_range) {
-	asmjit::Label exit;
-	asmjit::Label loop;
+	auto loop = for_jmp_labels.back()->get();
 
-	if (!for_jmp_labels.is_empty()) {
-		exit = for_jmp_labels.back()->get();
-		for_jmp_labels.pop_back();
-	}
-	else print_line("Error: jmp empty, prob not implemented yet");
-	if (!for_jmp_labels.is_empty()) {
-		loop = for_jmp_labels.back()->get();
-		for_jmp_labels.pop_back();
-	}
-	else print_line("Error: jmp empty, prob not implemented yet");
+	cc.jmp(loop.loop);
+	cc.bind(loop.exit);
+	for_jmp_labels.pop_back();
 
-
-	cc.jmp(loop);
-	cc.bind(exit);
 	// Jump back to loop check.
 	append_opcode(GDScriptFunction::OPCODE_JUMP);
 	append(continue_addrs.back()->get());
@@ -2012,6 +2028,9 @@ void GDScriptJitCodeGenerator::write_endwhile() {
 
 void GDScriptJitCodeGenerator::write_break() {
 	print_line("GDScriptJitCodeGenerator::write_break");
+	auto &loop = for_jmp_labels.back()->get();
+
+	cc.jmp(loop.exit);
 	append_opcode(GDScriptFunction::OPCODE_JUMP);
 	current_breaks_to_patch.back()->get().push_back(opcodes.size());
 	append(0);
@@ -2019,6 +2038,9 @@ void GDScriptJitCodeGenerator::write_break() {
 
 void GDScriptJitCodeGenerator::write_continue() {
 	print_line("GDScriptJitCodeGenerator::write_continue");
+	auto &loop = for_jmp_labels.back()->get();
+
+	cc.jmp(loop.loop);
 	append_opcode(GDScriptFunction::OPCODE_JUMP);
 	append(continue_addrs.back()->get());
 }

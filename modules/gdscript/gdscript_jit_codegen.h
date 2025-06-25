@@ -103,6 +103,11 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		bool has_else = false;
 	};
 
+	struct LoopContext {
+		asmjit::Label loop;
+		asmjit::Label exit;
+	};
+
 	Compiler cc;
 	asmjit::StringLogger stringLogger;
 	uint64_t start_time;
@@ -118,7 +123,7 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 
 	Vector<MemoryPatch> memory_patches;
 	List<IfContext> if_contexts;
-	List<asmjit::Label> for_jmp_labels;
+	List<LoopContext> for_jmp_labels;
 
 	void patch_memory_operands();
 
