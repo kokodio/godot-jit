@@ -33,18 +33,11 @@
 #include "gdscript.h"
 #include "gdscript_codegen.h"
 #include "gdscript_function.h"
+#include "gdscript_jit_base.h"
+#include "gdscript_jit_stack.h"
 #include "gdscript_utility_functions.h"
 #include "jit_runtime_manager.h"
-#include <asmjit/core.h>
-#include <asmjit/x86.h>
 
-using Compiler = asmjit::x86::Compiler;
-using Vec = asmjit::x86::Vec;
-using Gp = asmjit::x86::Gp;
-using Mem = asmjit::x86::Mem;
-namespace Arch {
-using namespace ::asmjit::x86;
-}
 class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	struct StackSlot {
 		Variant::Type type = Variant::NIL;
@@ -115,6 +108,7 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	};
 
 	Compiler cc;
+	StackManager stackManager;
 	asmjit::StringLogger stringLogger;
 	uint64_t start_time;
 
@@ -122,10 +116,6 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	Gp constants_ptr;
 	Gp stack_ptr;
 	Gp members_ptr;
-
-	Gp call_error_ptr;
-	Gp operator_ptr;
-	Gp bool_ptr;
 
 	Vector<MemoryPatch> memory_patches;
 	Vector<NamePatch> name_patches;
@@ -634,18 +624,21 @@ public:
 	void mov_to_variant_type_mem(const Address &p_address, int type_value, int offset = 0);
 
 	void handle_int_operation(Variant::Operator p_operator, const Address &left, const Address &right, const Address &result);
+	void handle_vector2_operation(Variant::Operator p_operator, const Address &p_left, const Address &p_right, const Address &p_result);
 	void gen_compare_int(Gp &lhs, Mem &rhs, const Address &p_result, Arch::CondCode cc);
 	void gen_compare_float(Vec &lhs, Vec &rhs, const Address &result_addr, Arch::CondCode cc);
 
 	void create_patch(const Address &p_address, int operand_index, int offset);
 
 	Gp prepare_args_array(const Vector<Address> &p_args);
+	Gp get_call_error();
+
+	void iterate_range(const Address &range_from, const Address &range_to, const Address &range_step, const Address &counter, bool p_use_conversion, Address &temp, const Address &p_variable);
 
 	virtual ~GDScriptJitCodeGenerator();
 	GDScriptJitCodeGenerator();
 
 	static constexpr int STACK_SLOT_SIZE = sizeof(Variant);
-	static constexpr int PTR_SIZE = sizeof(void *);
 
 	static constexpr int OFFSET_DATA = offsetof(Variant, _data);
 	static constexpr int OFFSET_INT_IN_DATA = offsetof(decltype(Variant::_data), _int);
