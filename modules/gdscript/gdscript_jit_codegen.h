@@ -111,7 +111,7 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	StackManager stackManager;
 	asmjit::StringLogger stringLogger;
 	uint64_t start_time;
-	asmjit::Label constants_ptr_label;
+	asmjit::Label constants_ptr_label = cc.newLabel();
 
 	Gp result_ptr;
 	Gp stack_ptr;

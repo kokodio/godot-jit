@@ -204,7 +204,6 @@ void GDScriptJitCodeGenerator::write_start(GDScript *p_script, const StringName 
 	func_node->setArg(0, result_ptr);
 	func_node->setArg(1, stack_ptr);
 	func_node->setArg(2, members_ptr);
-	constants_ptr_label = cc.newLabel();
 }
 
 GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
@@ -443,7 +442,7 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 
 	cc.endFunc();
 
-	if (function->_constants_ptr) {
+	if (constant_map.size()) {
 		asmjit::Section *dataSection;
 		JitRuntimeManager::get_singleton()->get_code().newSection(&dataSection, ".data", SIZE_MAX, asmjit::SectionFlags::kNone, 8);
 		cc.section(dataSection);
@@ -451,7 +450,6 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 		for (const KeyValue<Variant, int> &K : constant_map) {
 			cc.embed(&K.key, sizeof(Variant));
 		}
-		//cc.embed(&function->_constants_ptr, sizeof(function->_constants_ptr));
 	}
 
 	cc.finalize();
