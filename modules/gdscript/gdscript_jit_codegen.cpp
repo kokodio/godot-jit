@@ -194,19 +194,17 @@ void GDScriptJitCodeGenerator::write_start(GDScript *p_script, const StringName 
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
 	sig.addArg(asmjit::TypeId::kIntPtr);
-	sig.addArg(asmjit::TypeId::kIntPtr);
 
 	asmjit::FuncNode *func_node = cc.addFunc(sig);
 
 	result_ptr = cc.newIntPtr("result_ptr");
-	constants_ptr = cc.newIntPtr("constants_ptr");
 	stack_ptr = cc.newIntPtr("stack_ptr");
 	members_ptr = cc.newIntPtr("members_ptr");
 
 	func_node->setArg(0, result_ptr);
-	func_node->setArg(1, constants_ptr);
-	func_node->setArg(2, stack_ptr);
-	func_node->setArg(3, members_ptr);
+	func_node->setArg(1, stack_ptr);
+	func_node->setArg(2, members_ptr);
+	constants_ptr_label = cc.newLabel();
 }
 
 GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
@@ -444,6 +442,18 @@ GDScriptFunction *GDScriptJitCodeGenerator::write_end() {
 	patch_jit();
 
 	cc.endFunc();
+
+	if (function->_constants_ptr) {
+		asmjit::Section *dataSection;
+		JitRuntimeManager::get_singleton()->get_code().newSection(&dataSection, ".data", SIZE_MAX, asmjit::SectionFlags::kNone, 8);
+		cc.section(dataSection);
+		cc.bind(constants_ptr_label);
+		for (const KeyValue<Variant, int> &K : constant_map) {
+			cc.embed(&K.key, sizeof(Variant));
+		}
+		//cc.embed(&function->_constants_ptr, sizeof(function->_constants_ptr));
+	}
+
 	cc.finalize();
 
 	void *func_ptr = nullptr;
@@ -1563,6 +1573,25 @@ void GDScriptJitCodeGenerator::write_call_utility(const Address &p_target, const
 			append(p_arguments[i]);
 		}
 		CallTarget ct = get_call_target(p_target);
+
+		Gp args_array = prepare_args_array(p_arguments);
+		Gp dst_ptr = get_variant_ptr(ct.target);
+
+		Gp call_error_ptr = get_call_error();
+
+		asmjit::InvokeNode *utility_invoke;
+		cc.invoke(&utility_invoke, &Variant::call_utility_function, asmjit::FuncSignature::build<void, StringName &, Variant *, const Variant **, int, Callable::CallError &>());
+		utility_invoke->setArg(1, dst_ptr);
+		utility_invoke->setArg(2, args_array);
+		utility_invoke->setArg(3, p_arguments.size());
+		utility_invoke->setArg(4, call_error_ptr);
+
+		NamePatch name_patch;
+		name_patch.arg_index = 0;
+		name_patch.invoke_node = utility_invoke;
+		name_patch.name_index = get_name_map_pos(p_function);
+		name_patches.push_back(name_patch);
+
 		append(ct.target);
 		append(p_arguments.size());
 		append(p_function);
@@ -1813,6 +1842,29 @@ void GDScriptJitCodeGenerator::write_call_self(const Address &p_target, const St
 	}
 	append(GDScriptFunction::ADDR_TYPE_STACK << GDScriptFunction::ADDR_BITS);
 	CallTarget ct = get_call_target(p_target);
+
+	Gp base_ptr = get_variant_ptr(Address(Address::AddressMode::SELF));
+	Gp dst_ptr = get_variant_ptr(ct.target);
+
+	Gp args_array = prepare_args_array(p_arguments);
+	Gp call_error_ptr = get_call_error();
+
+	asmjit::InvokeNode *call_invoke;
+	cc.invoke(&call_invoke, &call_variant_method,
+			asmjit::FuncSignature::build<void, const Variant &, const StringName &, const Variant **, int, Variant &, Callable::CallError &>());
+
+	call_invoke->setArg(0, base_ptr);
+	call_invoke->setArg(2, args_array);
+	call_invoke->setArg(3, p_arguments.size());
+	call_invoke->setArg(4, dst_ptr);
+	call_invoke->setArg(5, call_error_ptr);
+
+	NamePatch name_patch;
+	name_patch.arg_index = 1;
+	name_patch.invoke_node = call_invoke;
+	name_patch.name_index = get_name_map_pos(p_function_name);
+	name_patches.push_back(name_patch);
+
 	append(ct.target);
 	append(p_arguments.size());
 	append(p_function_name);
@@ -2922,7 +2974,7 @@ Gp GDScriptJitCodeGenerator::get_variant_ptr(const Address &p_address) {
 		} break;
 
 		case Address::CONSTANT: {
-			cc.lea(variant_ptr, Arch::ptr(constants_ptr, p_address.address * sizeof(Variant)));
+			cc.lea(variant_ptr, Arch::ptr(constants_ptr_label, p_address.address * sizeof(Variant)));
 		} break;
 
 		case Address::LOCAL_VARIABLE:
@@ -3100,7 +3152,7 @@ Mem GDScriptJitCodeGenerator::get_variant_mem(const Address &p_address, int offs
 
 		case Address::CONSTANT: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::qword_ptr(constants_ptr, disp);
+			return Arch::qword_ptr(constants_ptr_label, disp);
 		}
 
 		case Address::LOCAL_VARIABLE:
@@ -3144,7 +3196,7 @@ Mem GDScriptJitCodeGenerator::get_variant_type_mem(const Address &p_address, int
 
 		case Address::CONSTANT: {
 			int disp = p_address.address * sizeof(Variant) + offset;
-			return Arch::dword_ptr(constants_ptr, disp);
+			return Arch::dword_ptr(constants_ptr_label, disp);
 		}
 
 		case Address::LOCAL_VARIABLE:
