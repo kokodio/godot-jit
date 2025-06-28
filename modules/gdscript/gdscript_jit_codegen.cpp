@@ -1474,6 +1474,10 @@ void GDScriptJitCodeGenerator::write_call(const Address &p_target, const Address
 	}
 	append(p_base);
 	CallTarget ct = get_call_target(p_target);
+	Gp base_ptr = get_variant_ptr(p_base);
+	Gp dst_ptr = get_variant_ptr(ct.target);
+
+	call_method(p_arguments, p_target, dst_ptr, base_ptr, p_function_name);
 	append(ct.target);
 	append(p_arguments.size());
 	append(p_function_name);
@@ -1844,29 +1848,48 @@ void GDScriptJitCodeGenerator::write_call_self(const Address &p_target, const St
 	Gp base_ptr = get_variant_ptr(Address(Address::AddressMode::SELF));
 	Gp dst_ptr = get_variant_ptr(ct.target);
 
+	call_method(p_arguments, p_target, dst_ptr, base_ptr, p_function_name);
+
+	append(ct.target);
+	append(p_arguments.size());
+	append(p_function_name);
+	ct.cleanup();
+}
+
+void GDScriptJitCodeGenerator::call_method(const Vector<Address> &p_arguments, const Address &p_target, Gp &dst_ptr, Gp &base_ptr, const StringName &p_function_name) {
 	Gp args_array = prepare_args_array(p_arguments);
 	Gp call_error_ptr = get_call_error();
 
 	asmjit::InvokeNode *call_invoke;
-	cc.invoke(&call_invoke, &call_variant_method,
-			asmjit::FuncSignature::build<void, const Variant &, const StringName &, const Variant **, int, Variant &, Callable::CallError &>());
 
+	if (p_target.mode == Address::NIL) {
+		cc.invoke(&call_invoke,
+				static_cast<void (*)(Variant &, const StringName &, const Variant **, int, Callable::CallError &)>(
+						[](Variant &base, const StringName &method_name, const Variant **args, int argc, Callable::CallError &error) {
+							Variant tmp;
+							base.callp(method_name, args, argc, tmp, error);
+						}),
+				asmjit::FuncSignature::build<void, Variant &, const StringName &, const Variant **, int, Callable::CallError &>());
+
+	} else {
+		cc.invoke(&call_invoke,
+				static_cast<void (*)(Variant &, const StringName &, const Variant **, int, Callable::CallError &, Variant &)>(
+						[](Variant &base, const StringName &method_name, const Variant **args, int argc, Callable::CallError &error, Variant &ret) {
+							base.callp(method_name, args, argc, ret, error);
+						}),
+				asmjit::FuncSignature::build<void, Variant &, const StringName &, const Variant **, int, Callable::CallError &, Variant &>());
+		call_invoke->setArg(5, dst_ptr);
+	}
 	call_invoke->setArg(0, base_ptr);
 	call_invoke->setArg(2, args_array);
 	call_invoke->setArg(3, p_arguments.size());
-	call_invoke->setArg(4, dst_ptr);
-	call_invoke->setArg(5, call_error_ptr);
+	call_invoke->setArg(4, call_error_ptr);
 
 	NamePatch name_patch;
 	name_patch.arg_index = 1;
 	name_patch.invoke_node = call_invoke;
 	name_patch.name_index = get_name_map_pos(p_function_name);
 	name_patches.push_back(name_patch);
-
-	append(ct.target);
-	append(p_arguments.size());
-	append(p_function_name);
-	ct.cleanup();
 }
 
 void GDScriptJitCodeGenerator::write_call_self_async(const Address &p_target, const StringName &p_function_name, const Vector<Address> &p_arguments) {
@@ -1889,6 +1912,10 @@ void GDScriptJitCodeGenerator::write_call_script_function(const Address &p_targe
 	}
 	append(p_base);
 	CallTarget ct = get_call_target(p_target);
+	Gp base_ptr = get_variant_ptr(p_base);
+	Gp dst_ptr = get_variant_ptr(ct.target);
+
+	call_method(p_arguments, p_target, dst_ptr, base_ptr, p_function_name);
 	append(ct.target);
 	append(p_arguments.size());
 	append(p_function_name);
@@ -1943,6 +1970,13 @@ void GDScriptJitCodeGenerator::write_construct(const Address &p_target, Variant:
 				append(p_arguments[i]);
 			}
 			CallTarget ct = get_call_target(p_target);
+
+			Gp dst_ptr = get_variant_ptr(ct.target);
+			Gp args_array = prepare_args_array(p_arguments);
+			asmjit::InvokeNode *construct_invoke;
+			cc.invoke(&construct_invoke, Variant::get_validated_constructor(p_type, valid_constructor), asmjit::FuncSignature::build<void, Variant *, const Variant **>());
+			construct_invoke->setArg(0, dst_ptr);
+			construct_invoke->setArg(1, args_array);
 			append(ct.target);
 			append(p_arguments.size());
 			append(Variant::get_validated_constructor(p_type, valid_constructor));
@@ -2004,6 +2038,39 @@ void GDScriptJitCodeGenerator::write_construct_typed_array(const Address &p_targ
 		append(p_arguments[i]);
 	}
 	CallTarget ct = get_call_target(p_target);
+
+	Gp args_array = prepare_args_array(p_arguments);
+	Gp dst_ptr = get_variant_ptr(ct.target);
+	Gp script_type_ptr = get_variant_ptr(Address(Address::AddressMode::CONSTANT, get_constant_pos(p_element_type.script_type)));
+
+	asmjit::InvokeNode *construct_invoke;
+	cc.invoke(&construct_invoke,
+			static_cast<void (*)(Variant *, Variant **, int, Variant *, int, const StringName *)>(
+					[](Variant *dst, Variant **args, int argcount, Variant *script_type, int builtin, const StringName *native) {
+						Array array;
+						array.resize(argcount);
+						for (int i = 0; i < argcount; i++) {
+							array[i] = *args[i];
+						}
+						*dst = Variant();
+
+						StringName class_name = ((Variant::Type)builtin == Variant::OBJECT) ? *native : class_name;
+						*dst = Array(array, (Variant::Type)builtin, class_name, *script_type);
+					}),
+			asmjit::FuncSignature::build<void, Variant *, Variant **, int, Variant *, int, const StringName *>());
+
+	construct_invoke->setArg(0, dst_ptr);
+	construct_invoke->setArg(1, args_array);
+	construct_invoke->setArg(2, p_arguments.size());
+	construct_invoke->setArg(3, script_type_ptr);
+	construct_invoke->setArg(4, p_element_type.builtin_type);
+
+	NamePatch name_patch;
+	name_patch.arg_index = 5;
+	name_patch.invoke_node = construct_invoke;
+	name_patch.name_index = get_name_map_pos(p_element_type.native_type);
+	name_patches.push_back(name_patch);
+
 	append(ct.target);
 	append(get_constant_pos(p_element_type.script_type) | (GDScriptFunction::ADDR_TYPE_CONSTANT << GDScriptFunction::ADDR_BITS));
 	append(p_arguments.size());
@@ -2510,9 +2577,44 @@ void GDScriptJitCodeGenerator::write_endfor(bool p_is_range) {
 void GDScriptJitCodeGenerator::start_while_condition() {
 	current_breaks_to_patch.push_back(List<int>());
 	continue_addrs.push_back(opcodes.size());
+	LoopContext loop_context;
+	loop_context.loop = cc.newLabel();
+	loop_context.exit = cc.newLabel();
+	for_jmp_labels.push_back(loop_context);
+
+	cc.bind(loop_context.loop);
 }
 
 void GDScriptJitCodeGenerator::write_while(const Address &p_condition) {
+	auto &loop = for_jmp_labels.back()->get();
+	//todo
+	switch (p_condition.type.builtin_type) {
+		case Variant::INT: {
+			Gp temp = cc.newInt64();
+			mov_from_variant_mem(temp, p_condition, OFFSET_INT);
+			cc.test(temp, temp);
+		} break;
+		case Variant::BOOL: {
+			Gp temp = cc.newInt8();
+			mov_from_variant_mem(temp, p_condition, OFFSET_BOOL);
+			cc.test(temp, temp);
+		} break;
+		default: {
+			Gp condition_ptr = get_variant_ptr(p_condition);
+			Gp bool_result = cc.newInt8("bool_result");
+			asmjit::InvokeNode *booleanize_invoke;
+			cc.invoke(&booleanize_invoke,
+					static_cast<bool (*)(const Variant *)>([](const Variant *v) -> bool {
+						return v->booleanize();
+					}),
+					asmjit::FuncSignature::build<bool, const Variant *>());
+			booleanize_invoke->setArg(0, condition_ptr);
+			booleanize_invoke->setRet(0, bool_result);
+
+			cc.test(bool_result, bool_result);
+		}
+	}
+	cc.jz(loop.exit);
 	// Condition check.
 	print_line("GDScriptJitCodeGenerator::write_while");
 	append_opcode(GDScriptFunction::OPCODE_JUMP_IF_NOT);
@@ -2522,6 +2624,11 @@ void GDScriptJitCodeGenerator::write_while(const Address &p_condition) {
 }
 
 void GDScriptJitCodeGenerator::write_endwhile() {
+	auto loop = for_jmp_labels.back()->get();
+	cc.jmp(loop.loop);
+	cc.bind(loop.exit);
+	for_jmp_labels.pop_back();
+
 	// Jump back to loop check.
 	print_line("GDScriptJitCodeGenerator::write_endwhile");
 	append_opcode(GDScriptFunction::OPCODE_JUMP);
