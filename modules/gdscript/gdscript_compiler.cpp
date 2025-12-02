@@ -35,6 +35,7 @@
 #include "gdscript_byte_codegen.h"
 #include "gdscript_cache.h"
 #include "gdscript_utility_functions.h"
+#include "jit_runtime_manager.h"
 
 #include "core/config/engine.h"
 #include "core/config/project_settings.h"
@@ -2529,6 +2530,10 @@ GDScriptFunction *GDScriptCompiler::_parse_function(Error &r_error, GDScript *p_
 
 	if (!is_implicit_initializer && !is_implicit_ready && !p_for_lambda) {
 		p_script->member_functions[func_name] = gd_function;
+	}
+
+	if (p_func && p_func->is_jit) {
+		JitRuntimeManager::get_singleton()->compile(gd_function);
 	}
 
 	memdelete(codegen.generator);

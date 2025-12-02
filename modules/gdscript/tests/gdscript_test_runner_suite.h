@@ -61,6 +61,18 @@ TEST_SUITE("[Modules][GDScript]") {
 		REQUIRE_MESSAGE(fail_count == 0, "All GDScript tests should pass.");
 	}
 }
+
+
+TEST_SUITE("[Modules][Jit]") {
+	TEST_CASE("Script compilation and runtime") {
+		bool print_filenames = OS::get_singleton()->get_cmdline_args().find("--print-filenames") != nullptr;
+		bool use_binary_tokens = OS::get_singleton()->get_cmdline_args().find("--use-binary-tokens") != nullptr;
+		GDScriptTestRunner runner("modules/gdscript/tests/scripts-jit", true, print_filenames, use_binary_tokens);
+		int fail_count = runner.run_tests();
+		INFO("Make sure `*.out` files have expected results.");
+		REQUIRE_MESSAGE(fail_count == 0, "All GDScript tests should pass.");
+	}
+}
 #endif // TOOLS_ENABLED
 
 TEST_CASE("[Modules][GDScript] Load source code dynamically and run it") {

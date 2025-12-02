@@ -453,6 +453,7 @@ public:
 private:
 	friend class GDScript;
 	friend class GDScriptCompiler;
+	friend class JitRuntimeManager;
 	friend class GDScriptByteCodeGenerator;
 	friend class GDScriptLanguage;
 
@@ -464,6 +465,8 @@ private:
 	MethodInfo method_info;
 	Variant rpc_config;
 
+	void *jit_function = nullptr;
+
 	GDScript *_script = nullptr;
 	int _initial_line = 0;
 	int _argument_count = 0;
@@ -474,6 +477,7 @@ private:
 	SelfList<GDScriptFunction> function_list{ this };
 	mutable Variant nil;
 	HashMap<int, Variant::Type> temporary_slots;
+	HashMap<int, Variant::Type> locals_slots;
 	List<StackDebug> stack_debug;
 
 	Vector<int> code;

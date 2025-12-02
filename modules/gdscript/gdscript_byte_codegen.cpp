@@ -193,6 +193,13 @@ GDScriptFunction *GDScriptByteCodeGenerator::write_end() {
 		}
 	}
 
+	for (int i = 0; i < locals.size(); i++) {
+		int stack_index = i + GDScriptFunction::FIXED_ADDRESSES_MAX;
+		if (locals[i].type != Variant::NIL) {
+			function->locals_slots[stack_index] = locals[i].type;
+		}
+	}
+
 	if (constant_map.size()) {
 		function->_constant_count = constant_map.size();
 		function->constants.resize(constant_map.size());
