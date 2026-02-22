@@ -188,6 +188,7 @@ GDScriptParser::GDScriptParser() {
 		// Networking.
 		// Keep in sync with `rpc_annotation()` and `SceneRPCInterface::_parse_rpc_config()`.
 		register_annotation(MethodInfo("@rpc", PropertyInfo(Variant::STRING, "mode"), PropertyInfo(Variant::STRING, "sync"), PropertyInfo(Variant::STRING, "transfer_mode"), PropertyInfo(Variant::INT, "transfer_channel")), AnnotationInfo::FUNCTION, &GDScriptParser::rpc_annotation, varray("authority", "call_remote", "reliable", 0));
+		register_annotation(MethodInfo("@jit"), AnnotationInfo::FUNCTION, &GDScriptParser::jit_annotation);
 	}
 
 #ifdef DEBUG_ENABLED
@@ -5250,6 +5251,15 @@ bool GDScriptParser::rpc_annotation(AnnotationNode *p_annotation, Node *p_target
 		}
 	}
 	function->rpc_config = rpc_config;
+	return true;
+}
+
+bool GDScriptParser::jit_annotation(AnnotationNode *p_annotation, Node *p_target, ClassNode *p_class) {
+	ERR_FAIL_COND_V_MSG(p_target->type != Node::FUNCTION, false, vformat(R"("%s" annotation can only be applied to functions.)", p_annotation->name));
+
+	FunctionNode *function = static_cast<FunctionNode *>(p_target);
+	function->is_jit = true;
+
 	return true;
 }
 

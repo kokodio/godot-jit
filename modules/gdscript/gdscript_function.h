@@ -454,6 +454,8 @@ private:
 	friend class GDScript;
 	friend class GDScriptCompiler;
 	friend class GDScriptByteCodeGenerator;
+	friend class GDScriptJitCodeGenerator;
+	friend class JitRuntimeManager;
 	friend class GDScriptLanguage;
 
 	StringName name;
@@ -463,6 +465,8 @@ private:
 	GDScriptDataType return_type;
 	MethodInfo method_info;
 	Variant rpc_config;
+
+	void *jit_function = nullptr;
 
 	GDScript *_script = nullptr;
 	int _initial_line = 0;
