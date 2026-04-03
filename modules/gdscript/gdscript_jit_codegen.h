@@ -76,7 +76,25 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		CallTarget &operator=(CallTarget &) = delete;
 	};
 
+	struct IRLoopLabels {
+		bool supported = false;
+		LabelId continue_label{};
+		LabelId break_label{};
+		LabelId body_label{};
+		ValueId container_ptr{};
+		ValueId counter_ptr{};
+		ValueId iterator_ptr{};
+		bool needs_iterate_step = false;
+	};
+
+	struct IRIfLabels {
+		LabelId false_label{};
+		LabelId end_label{};
+		bool has_else = false;
+	};
+
 	IRBuilder ir {};
+	uint64_t time;
 
 	bool ended = false;
 	GDScriptFunction *function = nullptr;
@@ -164,6 +182,8 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	List<int> ternary_jump_skip_pos;
 
 	List<List<int>> current_breaks_to_patch;
+	List<IRLoopLabels> ir_loop_stack;
+	List<IRIfLabels> ir_if_stack;
 
 	void add_stack_identifier(const StringName &p_id, int p_stackpos) {
 		if (locals.size() > max_locals) {
@@ -237,6 +257,43 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 		int pos = constant_map.size();
 		constant_map[p_constant] = pos;
 		return pos;
+	}
+
+	bool try_get_constant_i64(const Address &p_address, int64_t &r_value) const {
+		if (p_address.mode != Address::CONSTANT) {
+			return false;
+		}
+
+		for (const KeyValue<Variant, int> &E : constant_map) {
+			if (E.value == int(p_address.address) && E.key.get_type() == Variant::INT) {
+				r_value = int64_t(E.key);
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	void emit_assign_ir_simple(const Address &p_target, const Address &p_source) {
+		if (p_target.type.kind == GDScriptDataType::BUILTIN && p_target.type.builtin_type == Variant::INT) {
+			ir.emit_store_type(p_target, Variant::INT);
+			const ValueId value = ir.emit_load(p_source);
+			ir.emit_store(p_target, value);
+		} else if (p_target.type.kind == GDScriptDataType::BUILTIN && p_target.type.builtin_type == Variant::BOOL &&
+				p_source.type.kind == GDScriptDataType::BUILTIN && p_source.type.builtin_type == Variant::BOOL) {
+			ir.emit_store_type(p_target, Variant::BOOL);
+			const ValueId value = ir.emit_load(p_source);
+			ir.emit_store(p_target, value);
+		} else if (p_target.type.kind == GDScriptDataType::BUILTIN && p_target.type.builtin_type == Variant::FLOAT &&
+				p_source.type.kind == GDScriptDataType::BUILTIN && p_source.type.builtin_type == Variant::FLOAT) {
+			ir.emit_store_type(p_target, Variant::FLOAT);
+			const ValueId value = ir.emit_loadf64(p_source);
+			ir.emit_storef64(p_target, value);
+		} else {
+			const ValueId target_ptr = ir.emit_load_ptr(p_target);
+			const ValueId source_ptr = ir.emit_load_ptr(p_source);
+			ir.emit_assign(target_ptr, source_ptr);
+		}
 	}
 
 	int get_operation_pos(const Variant::ValidatedOperatorEvaluator p_operation) {
