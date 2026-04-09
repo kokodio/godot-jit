@@ -1,5 +1,5 @@
 # GH-56223, GH-76569
-
+@jit
 func test():
 	for i in 3:
 		var a

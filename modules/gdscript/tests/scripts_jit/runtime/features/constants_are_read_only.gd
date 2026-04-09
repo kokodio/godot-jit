@@ -1,6 +1,6 @@
 const array: Array = [0]
 const dictionary := {1: 2}
-
+@jit
 func test():
 	Utils.check(array.is_read_only() == true)
 	Utils.check(str(array) == '[0]')

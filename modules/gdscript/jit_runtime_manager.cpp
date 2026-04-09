@@ -817,7 +817,7 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 
 				case IROp::AddI64:
 					if (inst.args.size() == 1) {
-						pc.add(G(inst.dst), G(inst.args[0]), int64_t(inst.imm));
+						pc.add(G(inst.dst), G(inst.args[0]), asmjit::Imm(inst.imm));
 					} else {
 						pc.add(G(inst.dst), G(inst.args[0]), G(inst.args[1]));
 					}
@@ -994,8 +994,8 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 								ERR_FAIL_MSG("Trying to assign value of type '" + Variant::get_type_name(src->get_type()) +
 										"' to a variable of type '" + Variant::get_type_name(builtin_type) + "'.");
 							}
-#endif
 						} else {
+#endif
 							*dst = *src;
 						}
 					}, asmjit::FuncSignature::build<void, Variant *, const Variant *, int>());

@@ -1,5 +1,5 @@
 # https://github.com/godotengine/godot/issues/75832
-
+@jit
 @warning_ignore_start("narrowing_conversion")
 func test():
 	var hf := 2.0

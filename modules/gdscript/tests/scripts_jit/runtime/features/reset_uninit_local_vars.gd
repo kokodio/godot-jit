@@ -1,5 +1,5 @@
 # GH-89958
-
+@jit
 func test():
 	if true:
 		@warning_ignore("unused_variable")

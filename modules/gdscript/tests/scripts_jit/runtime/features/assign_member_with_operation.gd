@@ -1,5 +1,5 @@
 extends Node
-
+@jit
 func test():
 	process_priority = 10
 	var change = 20

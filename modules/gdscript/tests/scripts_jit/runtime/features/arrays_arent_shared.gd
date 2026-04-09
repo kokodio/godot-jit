@@ -1,5 +1,5 @@
 # https://github.com/godotengine/godot/issues/48121
-
+@jit
 func test():
 	var x := []
 	var y := []

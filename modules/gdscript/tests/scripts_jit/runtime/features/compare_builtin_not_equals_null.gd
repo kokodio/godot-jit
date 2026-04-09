@@ -1,3 +1,4 @@
+@jit
 func test():
 	var value
 

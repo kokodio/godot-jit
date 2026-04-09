@@ -1,4 +1,5 @@
 # GH-77666
+@jit
 func test_exit_if():
 	var ref := RefCounted.new()
 	print(ref.get_reference_count())
@@ -9,6 +10,7 @@ func test_exit_if():
 	print(ref.get_reference_count())
 
 # GH-94654
+@jit
 func test_exit_while():
 	var slots_data := []
 
@@ -21,6 +23,7 @@ func test_exit_while():
 	var slot: int = slots_data[0]
 	print(slot)
 
+@jit
 func test():
 	test_exit_if()
 	test_exit_while()

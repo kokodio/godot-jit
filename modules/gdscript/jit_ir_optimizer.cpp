@@ -94,18 +94,44 @@ static bool _ir_try_get_value_kind(const IRInst &p_inst, IRValueKind &r_kind) {
 	return true;
 }
 
-static bool _ir_live_sets_equal(const HashMap<uint64_t, bool> &p_a, const HashMap<uint64_t, bool> &p_b) {
+enum IRLiveBits : uint8_t {
+	IR_LIVE_VALUE = 1 << 0,
+	IR_LIVE_TYPE = 1 << 1,
+};
+
+static bool _ir_live_sets_equal(const HashMap<uint64_t, uint8_t> &p_a, const HashMap<uint64_t, uint8_t> &p_b) {
 	if (p_a.size() != p_b.size()) {
 		return false;
 	}
 
-	for (const KeyValue<uint64_t, bool> &E : p_a) {
-		if (!p_b.has(E.key)) {
+	for (const KeyValue<uint64_t, uint8_t> &E : p_a) {
+		const auto it = p_b.find(E.key);
+		if (it == p_b.end() || it->value != E.value) {
 			return false;
 		}
 	}
 
 	return true;
+}
+
+static void _ir_live_add(HashMap<uint64_t, uint8_t> &r_live, uint64_t p_key, uint8_t p_bits) {
+	const auto it = r_live.find(p_key);
+	if (it == r_live.end()) {
+		r_live[p_key] = p_bits;
+		return;
+	}
+	it->value |= p_bits;
+}
+
+static void _ir_live_remove(HashMap<uint64_t, uint8_t> &r_live, uint64_t p_key, uint8_t p_bits) {
+	const auto it = r_live.find(p_key);
+	if (it == r_live.end()) {
+		return;
+	}
+	it->value &= ~p_bits;
+	if (it->value == 0) {
+		r_live.erase(p_key);
+	}
 }
 
 static int _ir_find_matching_store_type(const Vector<IRInst> &p_code, int p_store_value_idx) {
@@ -527,12 +553,18 @@ public:
 						opt_block.code.push_back(inst);
 						break;
 
-					case IROp::StoreRealMemberF64:
-						if (inst.args.size() == 1 && _ir_can_forward_load(inst.mem_loc)) {
-							state.real_members[_ir_real_member_slot_key(inst.mem_loc, uint32_t(inst.imm))] = inst.args[0];
+					case IROp::StoreRealMemberF64: {
+						if (_ir_can_forward_load(inst.mem_loc)) {
+#ifdef REAL_T_IS_DOUBLE
+							if (inst.args.size() == 1) {
+								state.real_members[_ir_real_member_slot_key(inst.mem_loc, uint32_t(inst.imm))] = inst.args[0];
+							}
+#else
+							state.real_members.erase(_ir_real_member_slot_key(inst.mem_loc, uint32_t(inst.imm)));
+#endif
 						}
 						opt_block.code.push_back(inst);
-						break;
+					} break;
 
 					default:
 						opt_block.code.push_back(inst);
@@ -545,8 +577,8 @@ public:
 	}
 };
 
-static HashMap<uint64_t, bool> _ir_transfer_live_values(const IRBlock &p_block, const HashMap<uint64_t, bool> &p_live_out) {
-	HashMap<uint64_t, bool> live = p_live_out;
+static HashMap<uint64_t, uint8_t> _ir_transfer_live_values(const IRBlock &p_block, const HashMap<uint64_t, uint8_t> &p_live_out) {
+	HashMap<uint64_t, uint8_t> live = p_live_out;
 	HashMap<uint32_t, uint64_t> ptr_slots;
 
 	for (const IRInst &inst : p_block.code) {
@@ -664,16 +696,27 @@ static HashMap<uint64_t, bool> _ir_transfer_live_values(const IRBlock &p_block, 
 
 			case IROp::LoadParam:
 			case IROp::LoadF64:
+				if (_ir_can_elide_store(inst.mem_loc)) {
+					_ir_live_add(live, _ir_slot_key(inst.mem_loc), IR_LIVE_VALUE);
+				}
+				break;
+
 			case IROp::LoadPtr:
 				if (_ir_can_elide_store(inst.mem_loc)) {
-					live[_ir_slot_key(inst.mem_loc)] = true;
+					_ir_live_add(live, _ir_slot_key(inst.mem_loc), IR_LIVE_VALUE | IR_LIVE_TYPE);
 				}
 				break;
 
 			case IROp::StoreI64:
 			case IROp::StoreF64:
 				if (_ir_can_elide_store(inst.mem_loc)) {
-					live.erase(_ir_slot_key(inst.mem_loc));
+					_ir_live_remove(live, _ir_slot_key(inst.mem_loc), IR_LIVE_VALUE);
+				}
+				break;
+
+			case IROp::StoreType:
+				if (_ir_can_elide_store(inst.mem_loc)) {
+					_ir_live_remove(live, _ir_slot_key(inst.mem_loc), IR_LIVE_TYPE);
 				}
 				break;
 
@@ -685,9 +728,9 @@ static HashMap<uint64_t, bool> _ir_transfer_live_values(const IRBlock &p_block, 
 	return live;
 }
 
-static Vector<HashMap<uint64_t, bool>> _ir_analyze_live_out_sets(const Vector<IRBlock> &p_blocks, const Vector<Vector<int>> &p_successors) {
-	Vector<HashMap<uint64_t, bool>> live_in;
-	Vector<HashMap<uint64_t, bool>> live_out;
+static Vector<HashMap<uint64_t, uint8_t>> _ir_analyze_live_out_sets(const Vector<IRBlock> &p_blocks, const Vector<Vector<int>> &p_successors) {
+	Vector<HashMap<uint64_t, uint8_t>> live_in;
+	Vector<HashMap<uint64_t, uint8_t>> live_out;
 	live_in.resize(p_blocks.size());
 	live_out.resize(p_blocks.size());
 
@@ -696,10 +739,10 @@ static Vector<HashMap<uint64_t, bool>> _ir_analyze_live_out_sets(const Vector<IR
 		changed = false;
 
 		for (int block_idx = p_blocks.size() - 1; block_idx >= 0; block_idx--) {
-			HashMap<uint64_t, bool> out_live;
+			HashMap<uint64_t, uint8_t> out_live;
 			for (int succ_idx : p_successors[block_idx]) {
-				for (const KeyValue<uint64_t, bool> &E : live_in[succ_idx]) {
-					out_live[E.key] = true;
+				for (const KeyValue<uint64_t, uint8_t> &E : live_in[succ_idx]) {
+					_ir_live_add(out_live, E.key, E.value);
 				}
 			}
 
@@ -708,7 +751,7 @@ static Vector<HashMap<uint64_t, bool>> _ir_analyze_live_out_sets(const Vector<IR
 				changed = true;
 			}
 
-			HashMap<uint64_t, bool> in_live = _ir_transfer_live_values(p_blocks[block_idx], out_live);
+			HashMap<uint64_t, uint8_t> in_live = _ir_transfer_live_values(p_blocks[block_idx], out_live);
 			if (!_ir_live_sets_equal(live_in[block_idx], in_live)) {
 				live_in.write[block_idx] = in_live;
 				changed = true;
@@ -724,7 +767,7 @@ public:
 	virtual Vector<IRBlock> run(const IRCFG &p_cfg, const Vector<IRBlock> &p_blocks) const override {
 		Vector<IRBlock> final_blocks;
 		final_blocks.resize(p_blocks.size());
-		const Vector<HashMap<uint64_t, bool>> p_live_out = _ir_analyze_live_out_sets(p_blocks, p_cfg.successors);
+		const Vector<HashMap<uint64_t, uint8_t>> p_live_out = _ir_analyze_live_out_sets(p_blocks, p_cfg.successors);
 
 		for (int block_idx = 0; block_idx < p_blocks.size(); block_idx++) {
 			const IRBlock &opt_block = p_blocks[block_idx];
@@ -734,9 +777,9 @@ public:
 			final_block.label = opt_block.label;
 
 			Vector<bool> remove_inst;
-			remove_inst.resize(opt_block.code.size());
+			remove_inst.resize_initialized(opt_block.code.size());
 
-			HashMap<uint64_t, bool> live = p_live_out[block_idx];
+			HashMap<uint64_t, uint8_t> live = p_live_out[block_idx];
 			HashMap<uint32_t, uint64_t> ptr_slots;
 			for (const IRInst &inst : opt_block.code) {
 				if (inst.op == IROp::LoadPtr && _ir_can_elide_store(inst.mem_loc)) {
@@ -853,9 +896,14 @@ public:
 
 					case IROp::LoadParam:
 					case IROp::LoadF64:
+						if (_ir_can_elide_store(inst.mem_loc)) {
+							_ir_live_add(live, _ir_slot_key(inst.mem_loc), IR_LIVE_VALUE);
+						}
+						break;
+
 					case IROp::LoadPtr:
 						if (_ir_can_elide_store(inst.mem_loc)) {
-							live[_ir_slot_key(inst.mem_loc)] = true;
+							_ir_live_add(live, _ir_slot_key(inst.mem_loc), IR_LIVE_VALUE | IR_LIVE_TYPE);
 						}
 						break;
 
@@ -863,14 +911,11 @@ public:
 					case IROp::StoreF64: {
 						if (_ir_can_elide_store(inst.mem_loc)) {
 							const uint64_t key = _ir_slot_key(inst.mem_loc);
-							if (!live.has(key)) {
+							const auto live_it = live.find(key);
+							if (live_it == live.end() || (live_it->value & IR_LIVE_VALUE) == 0) {
 								remove_inst.write[inst_idx] = true;
-								const int store_type_idx = _ir_find_matching_store_type(opt_block.code, inst_idx);
-								if (store_type_idx >= 0) {
-									remove_inst.write[store_type_idx] = true;
-								}
 							} else {
-								live.erase(key);
+								_ir_live_remove(live, key, IR_LIVE_VALUE);
 							}
 						}
 					} break;
@@ -878,8 +923,11 @@ public:
 					case IROp::StoreType: {
 						if (_ir_can_elide_store(inst.mem_loc)) {
 							const uint64_t key = _ir_slot_key(inst.mem_loc);
-							if (!live.has(key) && _ir_find_matching_value_store_forward(opt_block.code, inst_idx, remove_inst) < 0) {
+							const auto live_it = live.find(key);
+							if (live_it == live.end() || (live_it->value & IR_LIVE_TYPE) == 0) {
 								remove_inst.write[inst_idx] = true;
+							} else {
+								_ir_live_remove(live, key, IR_LIVE_TYPE);
 							}
 						}
 					} break;
@@ -979,7 +1027,7 @@ public:
 			dst_block.label = src_block.label;
 
 			Vector<bool> remove_inst;
-			remove_inst.resize(src_block.code.size());
+			remove_inst.resize_initialized(src_block.code.size());
 			Vector<IRInst> rewritten_code = src_block.code;
 
 			for (int inst_idx = 1; inst_idx < src_block.code.size(); inst_idx++) {

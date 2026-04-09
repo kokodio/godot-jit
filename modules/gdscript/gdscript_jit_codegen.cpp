@@ -691,29 +691,6 @@ void GDScriptJitCodeGenerator::write_binary_operator(const Address &p_target, Va
 	}
 
 	if (valid &&
-			p_left_operand.type.builtin_type == Variant::INT &&
-			p_right_operand.type.builtin_type == Variant::INT &&
-			(p_operator == Variant::OP_DIVIDE || p_operator == Variant::OP_MODULE)) {
-		const auto v1 = ir.emit_load_ptr(p_left_operand);
-		const auto v2 = ir.emit_load_ptr(p_right_operand);
-		const auto v3 = ir.emit_load_ptr(p_target);
-		ir.emit_call_operator(v1, v2, v3, p_operator);
-
-		append_opcode(GDScriptFunction::OPCODE_OPERATOR);
-		append(p_left_operand);
-		append(p_right_operand);
-		append(p_target);
-		append(p_operator);
-		append(0);
-		append(0);
-		constexpr int _pointer_size = sizeof(Variant::ValidatedOperatorEvaluator) / sizeof(*(opcodes.ptr()));
-		for (int i = 0; i < _pointer_size; i++) {
-			append(0);
-		}
-		return;
-	}
-
-	if (valid &&
 			p_left_operand.type.builtin_type == Variant::FLOAT &&
 			p_right_operand.type.builtin_type == Variant::FLOAT &&
 			p_target.type.kind == GDScriptDataType::BUILTIN &&
@@ -888,6 +865,11 @@ void GDScriptJitCodeGenerator::write_binary_operator(const Address &p_target, Va
 #endif
 		return;
 	}
+
+	const auto v1 = ir.emit_load_ptr(p_left_operand);
+	const auto v2 = ir.emit_load_ptr(p_right_operand);
+	const auto v3 = ir.emit_load_ptr(p_target);
+	ir.emit_call_operator(v1, v2, v3, p_operator);
 
 	// No specific types, perform variant evaluation.
 	append_opcode(GDScriptFunction::OPCODE_OPERATOR);
@@ -2213,27 +2195,26 @@ void GDScriptJitCodeGenerator::write_for_list_assignment(const Address &p_list) 
 }
 
 void GDScriptJitCodeGenerator::write_for_range_assignment(const Address &p_from, const Address &p_to, const Address &p_step) {
-	print_debug("write_for_range_assignment");
-	for_range_from_variables.back()->get() = p_from;
-	for_range_to_variables.back()->get() = p_to;
-	for_range_step_variables.back()->get() = p_step;
+	const Address &range_from = for_range_from_variables.back()->get();
+	const Address &range_to = for_range_to_variables.back()->get();
+	const Address &range_step = for_range_step_variables.back()->get();
 
-	// // Assign range args.
-	// if (range_from.type == p_from.type) {
-	// 	write_assign(range_from, p_from);
-	// } else {
-	// 	write_assign_with_conversion(range_from, p_from);
-	// }
-	// if (range_to.type == p_to.type) {
-	// 	write_assign(range_to, p_to);
-	// } else {
-	// 	write_assign_with_conversion(range_to, p_to);
-	// }
-	// if (range_step.type == p_step.type) {
-	// 	write_assign(range_step, p_step);
-	// } else {
-	// 	write_assign_with_conversion(range_step, p_step);
-	// }
+	// Assign range args.
+	if (range_from.type == p_from.type) {
+		for_range_from_variables.back()->get() = p_from;
+	} else {
+		write_assign_with_conversion(range_from, p_from);
+	}
+	if (range_to.type == p_to.type) {
+		for_range_to_variables.back()->get() = p_to;
+	} else {
+		write_assign_with_conversion(range_to, p_to);
+	}
+	if (range_step.type == p_step.type) {
+		for_range_step_variables.back()->get() = p_step;
+	} else {
+		write_assign_with_conversion(range_step, p_step);
+	}
 }
 
 void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_conversion, bool p_is_range) {
@@ -2295,6 +2276,7 @@ void GDScriptJitCodeGenerator::write_for(const Address &p_variable, bool p_use_c
 
 		ir.emit_store(counter, ir_next_count);
 		ir.emit_store(ir_iterator, ir_next_count);
+
 		ir_loop_stack.push_back(IRLoopLabels{ true, ir_continue_label, ir_end_label });
 		has_custom_ir_loop = true;
 	} else if (container.type.has_type()) {

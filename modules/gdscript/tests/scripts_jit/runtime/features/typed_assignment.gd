@@ -1,3 +1,4 @@
+@jit
 func test():
 	var x: int = 2
 	var y = 3.14

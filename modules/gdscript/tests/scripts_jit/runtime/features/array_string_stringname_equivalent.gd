@@ -1,5 +1,5 @@
 # https://github.com/godotengine/godot/issues/63965
-
+@jit
 func test():
 	var array_str: Array = []
 	array_str.push_back("godot")
