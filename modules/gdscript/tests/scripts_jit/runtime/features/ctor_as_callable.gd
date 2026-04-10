@@ -3,6 +3,7 @@
 class InnerClass:
     pass
 
+@jit
 func test():
     var inner_ctor : Callable = InnerClass.new
     print(inner_ctor)

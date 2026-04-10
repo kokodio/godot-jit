@@ -19,6 +19,7 @@ func check_gdscript(value: GDScript) -> void:
 func check_enum(value: Dictionary) -> void:
 	print(value)
 
+@jit
 func test():
 	for property in get_property_list():
 		if str(property.name).begins_with("test_"):

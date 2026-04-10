@@ -1,13 +1,16 @@
+@jit
 func test():
 	var gdscr: = GDScript.new()
 	gdscr.source_code = '''
 extends Resource
 
+@jit
 func test() -> void:
 	prints("Outer")
 	var inner = InnerClass.new()
 
 class InnerClass:
+	@jit
 	func _init() -> void:
 		prints("Inner")
 '''

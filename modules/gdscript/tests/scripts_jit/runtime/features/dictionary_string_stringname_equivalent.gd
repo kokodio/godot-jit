@@ -1,5 +1,6 @@
 # https://github.com/godotengine/godot/issues/62957
 
+@jit
 func test():
 	var string_dict = {}
 	string_dict["abc"] = 42

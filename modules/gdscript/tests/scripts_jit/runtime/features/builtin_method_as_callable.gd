@@ -1,3 +1,4 @@
+@jit
 func test():
 	var array: Array = [1, 2, 3]
 	print(array)

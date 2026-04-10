@@ -3,6 +3,7 @@
 #include "gdscript.h"
 #include "gdscript_function.h"
 #include "jit_ir_optimizer.h"
+#include "core/variant/variant_internal.h"
 
 using namespace asmjit::ujit;
 
@@ -61,6 +62,75 @@ static void _jit_variant_assign_typed_dictionary(Variant *p_dst, const Variant *
 		return;
 	}
 	*p_dst = *p_src;
+}
+
+static void _jit_variant_type_adjust(Variant *p_variant, int p_type) {
+	switch (Variant::Type(p_type)) {
+		case Variant::BOOL: VariantTypeAdjust<bool>::adjust(p_variant); break;
+		case Variant::INT: VariantTypeAdjust<int64_t>::adjust(p_variant); break;
+		case Variant::FLOAT: VariantTypeAdjust<double>::adjust(p_variant); break;
+		case Variant::STRING: VariantTypeAdjust<String>::adjust(p_variant); break;
+		case Variant::VECTOR2: VariantTypeAdjust<Vector2>::adjust(p_variant); break;
+		case Variant::VECTOR2I: VariantTypeAdjust<Vector2i>::adjust(p_variant); break;
+		case Variant::RECT2: VariantTypeAdjust<Rect2>::adjust(p_variant); break;
+		case Variant::RECT2I: VariantTypeAdjust<Rect2i>::adjust(p_variant); break;
+		case Variant::VECTOR3: VariantTypeAdjust<Vector3>::adjust(p_variant); break;
+		case Variant::VECTOR3I: VariantTypeAdjust<Vector3i>::adjust(p_variant); break;
+		case Variant::TRANSFORM2D: VariantTypeAdjust<Transform2D>::adjust(p_variant); break;
+		case Variant::VECTOR4: VariantTypeAdjust<Vector4>::adjust(p_variant); break;
+		case Variant::VECTOR4I: VariantTypeAdjust<Vector4i>::adjust(p_variant); break;
+		case Variant::PLANE: VariantTypeAdjust<Plane>::adjust(p_variant); break;
+		case Variant::QUATERNION: VariantTypeAdjust<Quaternion>::adjust(p_variant); break;
+		case Variant::AABB: VariantTypeAdjust<AABB>::adjust(p_variant); break;
+		case Variant::BASIS: VariantTypeAdjust<Basis>::adjust(p_variant); break;
+		case Variant::TRANSFORM3D: VariantTypeAdjust<Transform3D>::adjust(p_variant); break;
+		case Variant::PROJECTION: VariantTypeAdjust<Projection>::adjust(p_variant); break;
+		case Variant::COLOR: VariantTypeAdjust<Color>::adjust(p_variant); break;
+		case Variant::STRING_NAME: VariantTypeAdjust<StringName>::adjust(p_variant); break;
+		case Variant::NODE_PATH: VariantTypeAdjust<NodePath>::adjust(p_variant); break;
+		case Variant::RID: VariantTypeAdjust<RID>::adjust(p_variant); break;
+		case Variant::OBJECT: VariantTypeAdjust<Object *>::adjust(p_variant); break;
+		case Variant::CALLABLE: VariantTypeAdjust<Callable>::adjust(p_variant); break;
+		case Variant::SIGNAL: VariantTypeAdjust<Signal>::adjust(p_variant); break;
+		case Variant::DICTIONARY: VariantTypeAdjust<Dictionary>::adjust(p_variant); break;
+		case Variant::ARRAY: VariantTypeAdjust<Array>::adjust(p_variant); break;
+		case Variant::PACKED_BYTE_ARRAY: VariantTypeAdjust<PackedByteArray>::adjust(p_variant); break;
+		case Variant::PACKED_INT32_ARRAY: VariantTypeAdjust<PackedInt32Array>::adjust(p_variant); break;
+		case Variant::PACKED_INT64_ARRAY: VariantTypeAdjust<PackedInt64Array>::adjust(p_variant); break;
+		case Variant::PACKED_FLOAT32_ARRAY: VariantTypeAdjust<PackedFloat32Array>::adjust(p_variant); break;
+		case Variant::PACKED_FLOAT64_ARRAY: VariantTypeAdjust<PackedFloat64Array>::adjust(p_variant); break;
+		case Variant::PACKED_STRING_ARRAY: VariantTypeAdjust<PackedStringArray>::adjust(p_variant); break;
+		case Variant::PACKED_VECTOR2_ARRAY: VariantTypeAdjust<PackedVector2Array>::adjust(p_variant); break;
+		case Variant::PACKED_VECTOR3_ARRAY: VariantTypeAdjust<PackedVector3Array>::adjust(p_variant); break;
+		case Variant::PACKED_COLOR_ARRAY: VariantTypeAdjust<PackedColorArray>::adjust(p_variant); break;
+		case Variant::PACKED_VECTOR4_ARRAY: VariantTypeAdjust<PackedVector4Array>::adjust(p_variant); break;
+		case Variant::NIL:
+		case Variant::VARIANT_MAX:
+			break;
+	}
+}
+
+static void _jit_variant_return(Variant *p_result, const Variant *p_src) {
+	*p_result = *p_src;
+}
+
+static void _jit_variant_return_typed_builtin(Variant *p_result, const Variant *p_src, int p_type) {
+	const Variant::Type ret_type = Variant::Type(p_type);
+	if (p_src->get_type() != ret_type) {
+		Callable::CallError ce;
+		if (Variant::can_convert_strict(p_src->get_type(), ret_type)) {
+			const Variant *args[1] = { p_src };
+			Variant::construct(ret_type, *p_result, args, 1, ce);
+		} else {
+			Variant::construct(ret_type, *p_result, nullptr, 0, ce);
+#ifdef DEBUG_ENABLED
+			ERR_FAIL_MSG("Trying to return value of type '" + Variant::get_type_name(p_src->get_type()) +
+					"' from a function whose return type is '" + Variant::get_type_name(ret_type) + "'.");
+#endif
+		}
+	} else {
+		*p_result = *p_src;
+	}
 }
 
 static void _jit_variant_get_named(const Variant *p_src, Variant *p_dst, const StringName *p_name) {
@@ -153,6 +223,36 @@ static void _jit_call_utility_validated(uint64_t p_function, Variant *p_dst, uin
 	Variant::ValidatedUtilityFunction function = reinterpret_cast<Variant::ValidatedUtilityFunction>(p_function);
 	const Variant **args = reinterpret_cast<const Variant **>(p_args);
 	function(p_dst, args, p_argcount);
+}
+
+static void _jit_call_gdscript_utility(uint64_t p_function, Variant *p_dst, uint64_t p_args, int p_argcount) {
+	GDScriptUtilityFunctions::FunctionPtr function = reinterpret_cast<GDScriptUtilityFunctions::FunctionPtr>(p_function);
+	const Variant **args = reinterpret_cast<const Variant **>(p_args);
+	Callable::CallError err;
+	function(p_dst, args, p_argcount, err);
+}
+
+static void _jit_call_builtin_static(const StringName *p_method_name, int p_builtin_type, Variant *p_dst, uint64_t p_args, int p_argcount) {
+	const Variant **args = reinterpret_cast<const Variant **>(p_args);
+	Callable::CallError err;
+	Variant::call_static(Variant::Type(p_builtin_type), *p_method_name, args, p_argcount, *p_dst, err);
+}
+
+static void _jit_call_method_bind(uint64_t p_method, const Variant *p_base, Variant *p_dst, uint64_t p_args, int p_argcount) {
+	MethodBind *method = reinterpret_cast<MethodBind *>(p_method);
+	const Variant **args = reinterpret_cast<const Variant **>(p_args);
+#ifdef DEBUG_ENABLED
+	bool freed = false;
+	Object *base_obj = p_base->get_validated_object_with_check(freed);
+	if (freed || !base_obj) {
+		VariantInternal::initialize(p_dst, Variant::NIL);
+		return;
+	}
+#else
+	Object *base_obj = *VariantInternal::get_object(p_base);
+#endif
+	Callable::CallError err;
+	*p_dst = method->call(base_obj, args, p_argcount, err);
 }
 
 static void _jit_call_builtin_validated(uint64_t p_method, Variant *p_base, Variant *p_dst, uint64_t p_args, int p_argcount) {
@@ -283,11 +383,14 @@ static String _ir_inst_to_string(const IRInst &p_inst, const int p_max_locals) {
 	String out = op_name;
 
 	switch (p_inst.op) {
-		case IROp::LoadParam:
-		case IROp::LoadF64:
-		case IROp::LoadPtr:
-			out += vformat(" dst=%s mem=%s", _ir_value_name(p_inst.dst), _ir_mem_name(p_inst.mem_loc, p_max_locals));
-			break;
+	case IROp::LoadParam:
+	case IROp::LoadF64:
+	case IROp::LoadPtr:
+		out += vformat(" dst=%s mem=%s", _ir_value_name(p_inst.dst), _ir_mem_name(p_inst.mem_loc, p_max_locals));
+		break;
+	case IROp::LoadDefArg:
+		out += vformat(" dst=%s", _ir_value_name(p_inst.dst));
+		break;
 		case IROp::ZeroI64:
 			out += vformat(" dst=%s", _ir_value_name(p_inst.dst));
 			break;
@@ -340,6 +443,8 @@ static String _ir_inst_to_string(const IRInst &p_inst, const int p_max_locals) {
 			break;
 		case IROp::AddI64:
 		case IROp::AddF64:
+		case IROp::NegI64:
+		case IROp::NegF64:
 		case IROp::MulI64:
 		case IROp::MulF64:
 		case IROp::SubI64:
@@ -359,6 +464,8 @@ static String _ir_inst_to_string(const IRInst &p_inst, const int p_max_locals) {
 		case IROp::GeF64:
 			if (p_inst.op == IROp::AddI64 && p_inst.args.size() == 1) {
 				out += vformat(" dst=%s a=%s imm=%d", _ir_value_name(p_inst.dst), _ir_value_name(p_inst.args[0]), int64_t(p_inst.imm));
+			} else if (p_inst.args.size() == 1) {
+				out += vformat(" dst=%s a=%s", _ir_value_name(p_inst.dst), _ir_value_name(p_inst.args[0]));
 			} else {
 				out += vformat(" dst=%s a=%s b=%s", _ir_value_name(p_inst.dst), _ir_value_name(p_inst.args[0]), _ir_value_name(p_inst.args[1]));
 			}
@@ -406,6 +513,11 @@ static String _ir_inst_to_string(const IRInst &p_inst, const int p_max_locals) {
 					int32_t((p_inst.imm >> 32) & 0xFFFFFFFFu),
 					int32_t((p_inst.aux >> 32) & 0xFFFFFFFFu));
 			break;
+		case IROp::TypeAdjust:
+			out += vformat(" dst_ptr=%s type=%d",
+					_ir_value_name(p_inst.args[0]),
+					int32_t(p_inst.imm));
+			break;
 		case IROp::GetNamed:
 			out += vformat(" src_ptr=%s dst_ptr=%s name=%d", _ir_value_name(p_inst.args[0]), _ir_value_name(p_inst.args[1]), p_inst.imm);
 			break;
@@ -452,6 +564,10 @@ static String _ir_inst_to_string(const IRInst &p_inst, const int p_max_locals) {
 			out += vformat(" base_ptr=%s dst_ptr=%s argc=%d", _ir_value_name(p_inst.args[p_inst.args.size() - 2]), _ir_value_name(p_inst.args[p_inst.args.size() - 1]), p_inst.args.size() - 2);
 			out += " method=" + itos((int64_t)p_inst.imm);
 			break;
+		case IROp::CallMethodBind:
+			out += vformat(" base_ptr=%s dst_ptr=%s argc=%d", _ir_value_name(p_inst.args[p_inst.args.size() - 2]), _ir_value_name(p_inst.args[p_inst.args.size() - 1]), p_inst.args.size() - 2);
+			out += " method=" + itos((int64_t)p_inst.imm);
+			break;
 		case IROp::CallMethodBindValidated:
 			out += vformat(" base_ptr=%s dst_ptr=%s argc=%d", _ir_value_name(p_inst.args[p_inst.args.size() - 2]), _ir_value_name(p_inst.args[p_inst.args.size() - 1]), p_inst.args.size() - 2);
 			out += " method=" + itos((int64_t)p_inst.imm);
@@ -481,6 +597,19 @@ static String _ir_inst_to_string(const IRInst &p_inst, const int p_max_locals) {
 			out += vformat(" dst_ptr=%s argc=%d function=%d",
 					_ir_value_name(p_inst.args[p_inst.args.size() - 1]),
 					p_inst.args.size() - 1,
+					p_inst.imm);
+			break;
+		case IROp::CallGDScriptUtility:
+			out += vformat(" dst_ptr=%s argc=%d function=%d",
+					_ir_value_name(p_inst.args[p_inst.args.size() - 1]),
+					p_inst.args.size() - 1,
+					p_inst.imm);
+			break;
+		case IROp::CallBuiltinStatic:
+			out += vformat(" dst_ptr=%s argc=%d type=%d method=%d",
+					_ir_value_name(p_inst.args[p_inst.args.size() - 1]),
+					p_inst.args.size() - 1,
+					p_inst.aux,
 					p_inst.imm);
 			break;
 		case IROp::CallUtilityValidated:
@@ -531,6 +660,12 @@ static String _ir_inst_to_string(const IRInst &p_inst, const int p_max_locals) {
 			break;
 		case IROp::Ret:
 			out += vformat(" value=%s", _ir_value_name(p_inst.args[0]));
+			break;
+		case IROp::RetVariant:
+			out += vformat(" src_ptr=%s", _ir_value_name(p_inst.args[0]));
+			break;
+		case IROp::RetTypedBuiltin:
+			out += vformat(" src_ptr=%s type=%d", _ir_value_name(p_inst.args[0]), int32_t(p_inst.imm));
 			break;
 		case IROp::RetTypedArray:
 			out += vformat(" src_ptr=%s script_type_ptr=%s builtin=%d native=%d",
@@ -612,17 +747,19 @@ void JitRuntimeManager::reset() {
 
 void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_locals) {
 	function = func;
-	asmjit::FuncNode *func_node = pc.add_func(asmjit::FuncSignature::build<void, Variant *, Variant *, Variant *, Variant *>());
+	asmjit::FuncNode *func_node = pc.add_func(asmjit::FuncSignature::build<void, Variant *, Variant *, Variant *, Variant *, uint64_t>());
 
 	result_ptr = pc.new_gpz("result_ptr");
 	stack_ptr = pc.new_gpz("stack_ptr");
 	members_ptr = pc.new_gpz("members_ptr");
 	constants_ptr = pc.new_gpz("constants_ptr");
+	defarg_ptr = pc.new_gpz("defarg_ptr");
 
 	func_node->set_arg(0, result_ptr);
 	func_node->set_arg(1, stack_ptr);
 	func_node->set_arg(2, members_ptr);
 	func_node->set_arg(3, constants_ptr);
+	func_node->set_arg(4, defarg_ptr);
 
 	const IROptimizationResult opt_result = optimize_ir(ir);
 	const Vector<IRBlock> &opt_blocks = opt_result.optimized_blocks;
@@ -708,6 +845,10 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 			switch (inst.op) {
 				case IROp::LoadParam:
 					pc.load_i64(G(inst.dst), addrOf(inst.mem_loc, 8));
+					break;
+
+				case IROp::LoadDefArg:
+					pc.mov(G(inst.dst), defarg_ptr);
 					break;
 
 				case IROp::LoadF64:
@@ -825,6 +966,14 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 
 				case IROp::AddF64:
 					pc.s_add_f64(F(inst.dst), F(inst.args[0]), F(inst.args[1]));
+					break;
+
+				case IROp::NegI64:
+					pc.neg(G(inst.dst), G(inst.args[0]));
+					break;
+
+				case IROp::NegF64:
+					pc.s_neg_f64(F(inst.dst), F(inst.args[0]));
 					break;
 
 				case IROp::MulI64:
@@ -1120,6 +1269,14 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 					break;
 				}
 
+				case IROp::TypeAdjust: {
+					Gp new_type = pc.new_gp64();
+					pc.mov(new_type, uint32_t(inst.imm));
+					asmjit::InvokeNode *invoke_node = emit_invoke(_jit_variant_type_adjust, asmjit::FuncSignature::build<void, Variant *, int>());
+					invoke_node->set_arg(0, G(inst.args[0]));
+					invoke_node->set_arg(1, new_type.r32());
+				} break;
+
 				case IROp::GetNamed: {
 					Gp name_ptr = pc.new_gp64();
 					pc.mov(name_ptr, uint64_t(&function->_global_names_ptr[inst.imm]));
@@ -1320,6 +1477,21 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 					invoke_node->set_arg(3, argc);
 				} break;
 
+				case IROp::CallGDScriptUtility: {
+					const int argc = inst.args.size() - 1;
+					Gp args_ptr = instructionArgsPtr();
+					Gp function_ptr = pc.new_gp64();
+					pc.mov(function_ptr, uint64_t(function->_gds_utilities_ptr[uint32_t(inst.imm)]));
+					for (int i = 0; i < argc; i++) {
+						pc.store_u64(mem_ptr(args_ptr, i * int(sizeof(Variant *))), G(inst.args[i]));
+					}
+					asmjit::InvokeNode *invoke_node = emit_invoke(_jit_call_gdscript_utility, asmjit::FuncSignature::build<void, uint64_t, Variant *, uint64_t, int>());
+					invoke_node->set_arg(0, function_ptr);
+					invoke_node->set_arg(1, G(inst.args[argc]));
+					invoke_node->set_arg(2, args_ptr);
+					invoke_node->set_arg(3, argc);
+				} break;
+
 				case IROp::CallUtilityValidated: {
 					const int argc = inst.args.size() - 1;
 					Gp args_ptr = instructionArgsPtr();
@@ -1335,6 +1507,24 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 					invoke_node->set_arg(3, argc);
 				} break;
 
+				case IROp::CallBuiltinStatic: {
+					const int argc = inst.args.size() - 1;
+					Gp args_ptr = instructionArgsPtr();
+					Gp method_name_ptr = pc.new_gp64();
+					pc.mov(method_name_ptr, uint64_t(&function->_global_names_ptr[uint32_t(inst.imm)]));
+					Gp builtin_type = pc.new_gp32();
+					pc.mov(builtin_type, uint32_t(inst.aux));
+					for (int i = 0; i < argc; i++) {
+						pc.store_u64(mem_ptr(args_ptr, i * int(sizeof(Variant *))), G(inst.args[i]));
+					}
+					asmjit::InvokeNode *invoke_node = emit_invoke(_jit_call_builtin_static, asmjit::FuncSignature::build<void, const StringName *, int, Variant *, uint64_t, int>());
+					invoke_node->set_arg(0, method_name_ptr);
+					invoke_node->set_arg(1, builtin_type);
+					invoke_node->set_arg(2, G(inst.args[argc]));
+					invoke_node->set_arg(3, args_ptr);
+					invoke_node->set_arg(4, argc);
+				} break;
+
 				case IROp::CallBuiltinValidated: {
 					const int argc = inst.args.size() - 2;
 					Gp args_ptr = instructionArgsPtr();
@@ -1344,6 +1534,22 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 						pc.store_u64(mem_ptr(args_ptr, i * int(sizeof(Variant *))), G(inst.args[i]));
 					}
 					asmjit::InvokeNode *invoke_node = emit_invoke(_jit_call_builtin_validated, asmjit::FuncSignature::build<void, uint64_t, Variant *, Variant *, uint64_t, int>());
+					invoke_node->set_arg(0, method_ptr);
+					invoke_node->set_arg(1, G(inst.args[argc]));
+					invoke_node->set_arg(2, G(inst.args[argc + 1]));
+					invoke_node->set_arg(3, args_ptr);
+					invoke_node->set_arg(4, argc);
+				} break;
+
+				case IROp::CallMethodBind: {
+					const int argc = inst.args.size() - 2;
+					Gp args_ptr = instructionArgsPtr();
+					Gp method_ptr = pc.new_gp64();
+					pc.mov(method_ptr, inst.imm);
+					for (int i = 0; i < argc; i++) {
+						pc.store_u64(mem_ptr(args_ptr, i * int(sizeof(Variant *))), G(inst.args[i]));
+					}
+					asmjit::InvokeNode *invoke_node = emit_invoke(_jit_call_method_bind, asmjit::FuncSignature::build<void, uint64_t, const Variant *, Variant *, uint64_t, int>());
 					invoke_node->set_arg(0, method_ptr);
 					invoke_node->set_arg(1, G(inst.args[argc]));
 					invoke_node->set_arg(2, G(inst.args[argc + 1]));
@@ -1537,6 +1743,23 @@ void JitRuntimeManager::compile(IRBuilder ir, GDScriptFunction *func, int max_lo
 						pc.store_u64(mem_ptr(result_ptr, 0), type);
 						pc.store_u64(mem_ptr(result_ptr, 8), G(inst.args[0]));
 					}
+					pc.ret();
+				} break;
+
+				case IROp::RetVariant: {
+					asmjit::InvokeNode *invoke_node = emit_invoke(_jit_variant_return, asmjit::FuncSignature::build<void, Variant *, const Variant *>());
+					invoke_node->set_arg(0, result_ptr);
+					invoke_node->set_arg(1, G(inst.args[0]));
+					pc.ret();
+				} break;
+
+				case IROp::RetTypedBuiltin: {
+					Gp builtin_type = pc.new_gp64();
+					pc.mov(builtin_type, uint32_t(inst.imm));
+					asmjit::InvokeNode *invoke_node = emit_invoke(_jit_variant_return_typed_builtin, asmjit::FuncSignature::build<void, Variant *, const Variant *, int>());
+					invoke_node->set_arg(0, result_ptr);
+					invoke_node->set_arg(1, G(inst.args[0]));
+					invoke_node->set_arg(2, builtin_type.r32());
 					pc.ret();
 				} break;
 

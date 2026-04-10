@@ -6,7 +6,7 @@ var node: Node:
 	set(n):
 		node = n
 
-
+@jit
 func test():
 	node = Node.new()
 	node.free()

@@ -1,6 +1,8 @@
+@jit
 func get_parse_string(t: Variant):
 	return t.parse_string
 
+@jit
 func test():
 	var a: Callable = JSON.parse_string
 	var b: Callable = get_parse_string(JSON)

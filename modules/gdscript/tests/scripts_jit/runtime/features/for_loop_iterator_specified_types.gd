@@ -1,3 +1,4 @@
+@jit
 func test():
 	print("Test range.")
 	for e: float in range(2, 5):

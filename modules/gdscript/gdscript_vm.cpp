@@ -741,11 +741,11 @@ Variant GDScriptFunction::call(GDScriptInstance *p_instance, const Variant **p_a
 	Variant *variant_addresses[ADDR_TYPE_MAX] = { stack, _constants_ptr, p_instance ? p_instance->members.ptrw() : nullptr };
 
 	if (jit_function) {
-		typedef void (*JitFunction)(Variant *result, Variant *stack_ptr, Variant *members_ptr, Variant *const_ptr);
+		typedef void (*JitFunction)(Variant *result, Variant *stack_ptr, Variant *members_ptr, Variant *const_ptr, uint64_t defarg);
 		auto jit_func = reinterpret_cast<JitFunction>(jit_function);
 
 		Variant* member_ptr = p_instance ? p_instance->members.ptrw() : nullptr;
-		jit_func(&retvalue, stack, member_ptr, _constants_ptr);
+		jit_func(&retvalue, stack, member_ptr, _constants_ptr, defarg);
 
 		if (!p_state) {
 			GDScriptLanguage::get_singleton()->exit_function();

@@ -8,6 +8,7 @@
 
 #define IROP_LIST(X) \
 	X(LoadParam)     \
+	X(LoadDefArg)    \
 	X(LoadF64)       \
 	X(LoadRealMemberF64) \
 	X(StoreRealMemberF64) \
@@ -15,6 +16,8 @@
 	X(ZeroI64)       \
 	X(AddI64)        \
 	X(AddF64)        \
+	X(NegI64)        \
+	X(NegF64)        \
 	X(MulI64)        \
 	X(MulF64)        \
 	X(SubI64)        \
@@ -41,6 +44,7 @@
 	X(AssignTypedScript) \
 	X(AssignTypedArray) \
 	X(AssignTypedDictionary) \
+	X(TypeAdjust)    \
 	X(Construct)     \
 	X(ConstructValidated) \
 	X(ConstructArray) \
@@ -62,7 +66,10 @@
 	X(Call) \
 	X(CallSelf) \
 	X(CallUtility) \
+	X(CallGDScriptUtility) \
+	X(CallBuiltinStatic) \
 	X(CallBuiltinValidated) \
+	X(CallMethodBind) \
 	X(CallMethodBindValidated) \
 	X(CallUtilityValidated) \
 	X(CallBinOp)     \
@@ -73,6 +80,8 @@
 	X(Jump)          \
 	X(JumpCc)        \
 	X(Ret)           \
+	X(RetVariant)    \
+	X(RetTypedBuiltin) \
 	X(RetTypedArray) \
 	X(RetTypedDictionary) \
 	X(StoreI64)      \
@@ -202,6 +211,17 @@ struct IRBuilder {
 		return v;
 	}
 
+	ValueId emit_load_defarg() {
+		const ValueId v = new_value();
+
+		IRInst inst;
+		inst.op = IROp::LoadDefArg;
+		inst.dst = v;
+
+		_push_inst(inst);
+		return v;
+	}
+
 	ValueId emit_iterate_begin(ValueId container_ptr, ValueId counter_ptr, ValueId iterator_ptr) {
 		const ValueId v = new_value();
 
@@ -307,6 +327,30 @@ struct IRBuilder {
 		inst.op = IROp::AddF64;
 		inst.dst = v;
 		inst.args = { a, b };
+
+		_push_inst(inst);
+		return v;
+	}
+
+	ValueId emit_neg64(ValueId a) {
+		const ValueId v = new_value();
+
+		IRInst inst;
+		inst.op = IROp::NegI64;
+		inst.dst = v;
+		inst.args = { a };
+
+		_push_inst(inst);
+		return v;
+	}
+
+	ValueId emit_negf64(ValueId a) {
+		const ValueId v = new_value();
+
+		IRInst inst;
+		inst.op = IROp::NegF64;
+		inst.dst = v;
+		inst.args = { a };
 
 		_push_inst(inst);
 		return v;
@@ -712,6 +756,15 @@ struct IRBuilder {
 		_push_inst(inst);
 	}
 
+	void emit_type_adjust(ValueId dst_ptr, Variant::Type new_type) {
+		IRInst inst;
+		inst.op = IROp::TypeAdjust;
+		inst.args = { dst_ptr };
+		inst.imm = uint64_t(new_type);
+
+		_push_inst(inst);
+	}
+
 	void emit_call(ValueId base_ptr, const Vector<ValueId> &arg_ptrs, ValueId dst_ptr, int method_name_index) {
 		IRInst inst;
 		inst.op = IROp::Call;
@@ -736,6 +789,16 @@ struct IRBuilder {
 	void emit_call_utility(const Vector<ValueId> &arg_ptrs, ValueId dst_ptr, int function_name_index) {
 		IRInst inst;
 		inst.op = IROp::CallUtility;
+		inst.args = arg_ptrs;
+		inst.args.push_back(dst_ptr);
+		inst.imm = uint64_t(function_name_index);
+
+		_push_inst(inst);
+	}
+
+	void emit_call_gdscript_utility(const Vector<ValueId> &arg_ptrs, ValueId dst_ptr, int function_name_index) {
+		IRInst inst;
+		inst.op = IROp::CallGDScriptUtility;
 		inst.args = arg_ptrs;
 		inst.args.push_back(dst_ptr);
 		inst.imm = uint64_t(function_name_index);
@@ -807,6 +870,28 @@ struct IRBuilder {
 	void emit_call_builtin_validated(ValueId base_ptr, const Vector<ValueId> &arg_ptrs, ValueId dst_ptr, Variant::ValidatedBuiltInMethod method) {
 		IRInst inst;
 		inst.op = IROp::CallBuiltinValidated;
+		inst.args = arg_ptrs;
+		inst.args.push_back(base_ptr);
+		inst.args.push_back(dst_ptr);
+		inst.imm = uint64_t(method);
+
+		_push_inst(inst);
+	}
+
+	void emit_call_builtin_static(const Vector<ValueId> &arg_ptrs, ValueId dst_ptr, Variant::Type builtin_type, uint32_t method_name_idx) {
+		IRInst inst;
+		inst.op = IROp::CallBuiltinStatic;
+		inst.args = arg_ptrs;
+		inst.args.push_back(dst_ptr);
+		inst.imm = method_name_idx;
+		inst.aux = builtin_type;
+
+		_push_inst(inst);
+	}
+
+	void emit_call_method_bind(ValueId base_ptr, const Vector<ValueId> &arg_ptrs, ValueId dst_ptr, MethodBind *method) {
+		IRInst inst;
+		inst.op = IROp::CallMethodBind;
 		inst.args = arg_ptrs;
 		inst.args.push_back(base_ptr);
 		inst.args.push_back(dst_ptr);
@@ -952,6 +1037,23 @@ struct IRBuilder {
 		_push_inst(inst);
 	}
 
+	void emit_return_variant(ValueId src_ptr) {
+		IRInst inst;
+		inst.op = IROp::RetVariant;
+		inst.args = { src_ptr };
+
+		_push_inst(inst);
+	}
+
+	void emit_return_typed_builtin(ValueId src_ptr, Variant::Type builtin_type) {
+		IRInst inst;
+		inst.op = IROp::RetTypedBuiltin;
+		inst.args = { src_ptr };
+		inst.imm = uint64_t(builtin_type);
+
+		_push_inst(inst);
+	}
+
 	void emit_return_typed_array(ValueId src_ptr, ValueId script_type_ptr, Variant::Type builtin_type, int native_type_index) {
 		IRInst inst;
 		inst.op = IROp::RetTypedArray;
@@ -990,6 +1092,7 @@ class JitRuntimeManager {
 	asmjit::ujit::Gp stack_ptr;
 	asmjit::ujit::Gp members_ptr;
 	asmjit::ujit::Gp constants_ptr;
+	asmjit::ujit::Gp defarg_ptr;
 
 	JitRuntimeManager();
 

@@ -5,6 +5,7 @@ var prop: int = 0:
 	set(value):
 		prop = value % 7
 
+@jit
 func test():
 	for i in 7:
 		prop += 1

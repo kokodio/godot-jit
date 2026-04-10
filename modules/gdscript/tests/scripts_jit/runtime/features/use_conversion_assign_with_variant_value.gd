@@ -1,5 +1,5 @@
 # https://github.com/godotengine/godot/issues/71172
-
+@jit
 func test():
 	@warning_ignore("narrowing_conversion")
 	var foo: int = 0.0

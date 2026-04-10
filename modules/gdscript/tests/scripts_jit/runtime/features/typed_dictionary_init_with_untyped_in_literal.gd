@@ -1,3 +1,4 @@
+@jit
 func test():
 	var untyped: Variant = 32
 	var typed: Dictionary[int, int] = { untyped: untyped }

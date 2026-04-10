@@ -1,23 +1,28 @@
 class MyIterator:
 	var count: int
 
+	@jit
 	func _init(p_count: int) -> void:
 		count = p_count
 
+	@jit
 	func _iter_init(arg: Array) -> bool:
 		prints("_iter_init", arg)
 		arg[0] = 0
 		return arg[0] < count
 
+	@jit
 	func _iter_next(arg: Array) -> bool:
 		prints("_iter_next", arg)
 		arg[0] += 1
 		return arg[0] < count
 
+	@jit
 	func _iter_get(arg: Variant) -> Variant:
 		prints("_iter_get", arg)
 		return arg
 
+@jit
 func test():
 	var container := PackedDataContainer.new()
 	var _err := container.pack([{

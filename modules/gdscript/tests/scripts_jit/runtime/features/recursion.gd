@@ -1,3 +1,4 @@
+@jit
 func is_prime(number: int, divisor: int = 2) -> bool:
 	print(divisor)
 	if number <= 2:
@@ -8,7 +9,9 @@ func is_prime(number: int, divisor: int = 2) -> bool:
 		return true
 
 	return is_prime(number, divisor + 1)
+	
 
+@jit
 func test():
 	# Not a prime number.
 	print(is_prime(989))

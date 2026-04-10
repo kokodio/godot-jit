@@ -1,5 +1,6 @@
 # https://github.com/godotengine/godot/issues/56702
 
+@jit
 func test():
 	const_default()
 	func_result_default()
@@ -11,25 +12,26 @@ func test():
 	# somewhat obscure feature: referencing earlier parameters
 	ref_default("non-optional", 42)
 
-
+@jit
 func const_default(param=42):
 	print(param)
 
 
 var default_val := 0
 
+@jit
 func get_default():
 	default_val += 1
 	return default_val
 
-
+@jit
 func func_result_default(param=get_default()):
 	print(param)
 
-
+@jit
 func lots_of_defaults(nondefault, one=1, two=2, three=get_default()):
 	prints(nondefault, one, two, three)
 
-
+@jit
 func ref_default(nondefault1, nondefault2, defa=nondefault1, defb=nondefault2 - 1):
 	prints(nondefault1, nondefault2, defa, defb)

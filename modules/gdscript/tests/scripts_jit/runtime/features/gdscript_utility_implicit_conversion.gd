@@ -1,3 +1,4 @@
+@jit
 func test():
 	const COLOR = Color8(255, 0.0, false)
 	var false_value := false

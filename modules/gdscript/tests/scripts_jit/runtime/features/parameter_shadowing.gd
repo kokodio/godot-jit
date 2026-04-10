@@ -2,6 +2,7 @@
 
 var a: int = 1
 
+@jit
 func shadow_regular_assignment(a: Variant, b: Variant) -> void:
 	print(a)
 	print(self.a)
@@ -12,6 +13,7 @@ func shadow_regular_assignment(a: Variant, b: Variant) -> void:
 
 var v := Vector2(0.0, 0.0)
 
+@jit
 func shadow_subscript_assignment(v: Vector2, x: float) -> void:
 	print(v)
 	print(self.v)
@@ -19,7 +21,7 @@ func shadow_subscript_assignment(v: Vector2, x: float) -> void:
 	print(v)
 	print(self.v)
 
-
+@jit
 func test():
 	shadow_regular_assignment('a', 'b')
 	shadow_subscript_assignment(Vector2(1.0, 1.0), 5.0)

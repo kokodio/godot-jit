@@ -6,6 +6,7 @@
 @export_category("test_1")
 @export var test_2: int
 
+@jit
 func test():
 	var resource := Resource.new()
 	prints("Not shadowed:", resource.get_class())

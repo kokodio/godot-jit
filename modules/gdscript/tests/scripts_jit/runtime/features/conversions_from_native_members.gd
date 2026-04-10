@@ -1,4 +1,5 @@
 class Foo extends Node:
+	@jit
 	func _init():
 		name = 'f'
 		var string: String = name
@@ -6,6 +7,7 @@ class Foo extends Node:
 		Utils.check(string == 'f')
 		print('ok')
 
+@jit
 func test():
 	var foo := Foo.new()
 	foo.free()

@@ -5,6 +5,7 @@ class Example:
 
 const const_ints : Array[int] = [1, 2, 3]
 
+@jit
 func test():
 	var ints: Array[int] = [1, 2, 3]
 	var strings: Array[String] = ["4", "5", "6"]

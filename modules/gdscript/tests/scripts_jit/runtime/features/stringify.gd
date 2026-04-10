@@ -1,3 +1,4 @@
+@jit
 func test():
 	print(true, false)
 	print(-1, 0, 1)

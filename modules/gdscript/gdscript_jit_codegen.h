@@ -180,6 +180,11 @@ class GDScriptJitCodeGenerator : public GDScriptCodeGenerator {
 	List<Address> ternary_result;
 	List<int> ternary_jump_fail_pos;
 	List<int> ternary_jump_skip_pos;
+	Vector<LabelId> default_parameter_labels;
+	LabelId default_parameter_body_label{};
+	ValueId default_parameter_defarg{};
+	int default_parameter_index = 0;
+	bool default_parameters_active = false;
 
 	List<List<int>> current_breaks_to_patch;
 	List<IRLoopLabels> ir_loop_stack;

@@ -1,3 +1,4 @@
+@jit
 func test():
 	# GH-109376
 	# Note: unlike "for range", which is iterated in place, this helper function generates an array of all values in range.

@@ -5,6 +5,7 @@ extends Node
 @onready var later_static_with_init: Array = [1]
 @onready var later_untyped = [1]
 
+@jit
 func test():
 	Utils.check(typeof(later_inferred) == TYPE_ARRAY)
 	Utils.check(later_inferred.size() == 0)

@@ -1,5 +1,4 @@
 # https://github.com/godotengine/godot/issues/93952
-
 func foo():
 	pass
 

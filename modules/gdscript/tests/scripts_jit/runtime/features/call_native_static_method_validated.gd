@@ -1,3 +1,4 @@
+@jit
 func test():
 	# Validated native static call with return value.
 	print(FileAccess.file_exists("some_file"))

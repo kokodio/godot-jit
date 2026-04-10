@@ -3,7 +3,7 @@
 
 var s = "abc"
 var sn = &"abc"
-
+@jit
 func test():
 	print("Compare ==: ", "abc" == &"abc")
 	print("Compare ==: ", &"abc" == "abc")

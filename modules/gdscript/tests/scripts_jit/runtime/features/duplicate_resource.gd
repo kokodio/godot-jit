@@ -9,6 +9,7 @@ class TestResource:
 	@export var arr: Array = [1, 2, 3]
 	@export var dict: Dictionary = { "a": 1, "b": 2 }
 
+@jit
 func test():
 	# Via Resource type.
 	var res := TestResource.new()

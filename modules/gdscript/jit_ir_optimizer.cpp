@@ -39,11 +39,14 @@ static bool _ir_inst_defines_value(const IRInst &p_inst) {
 	switch (p_inst.op) {
 		case IROp::ZeroI64:
 		case IROp::LoadParam:
+		case IROp::LoadDefArg:
 		case IROp::LoadF64:
 		case IROp::LoadRealMemberF64:
 		case IROp::LoadPtr:
 		case IROp::AddI64:
 		case IROp::AddF64:
+		case IROp::NegI64:
+		case IROp::NegF64:
 		case IROp::MulI64:
 		case IROp::MulF64:
 		case IROp::SubI64:
@@ -77,10 +80,12 @@ static bool _ir_try_get_value_kind(const IRInst &p_inst, IRValueKind &r_kind) {
 
 	switch (p_inst.op) {
 		case IROp::ZeroI64:
+		case IROp::LoadDefArg:
 			r_kind = IRValueKind::GP64;
 			break;
 		case IROp::LoadF64:
 		case IROp::AddF64:
+		case IROp::NegF64:
 		case IROp::MulF64:
 		case IROp::SubF64:
 		case IROp::LoadRealMemberF64:
@@ -219,7 +224,7 @@ static Vector<IRBlock> _ir_split_raw_blocks(const IRBuilder &p_ir) {
 			}
 
 			current.code.push_back(raw_block.code[inst_idx]);
-			if ((raw_block.code[inst_idx].op == IROp::Jump || raw_block.code[inst_idx].op == IROp::JumpCc || raw_block.code[inst_idx].op == IROp::Ret) && inst_idx + 1 < raw_block.code.size()) {
+				if ((raw_block.code[inst_idx].op == IROp::Jump || raw_block.code[inst_idx].op == IROp::JumpCc || raw_block.code[inst_idx].op == IROp::Ret || raw_block.code[inst_idx].op == IROp::RetVariant || raw_block.code[inst_idx].op == IROp::RetTypedBuiltin) && inst_idx + 1 < raw_block.code.size()) {
 				raw_blocks.push_back(current);
 				current = IRBlock();
 				have_current = false;
@@ -298,8 +303,10 @@ static IRCFG _ir_build_cfg_from_blocks(const Vector<IRBlock> &p_blocks) {
 					_ir_add_successor(cfg, block_idx, block_idx + 1);
 				}
 				break;
-			case IROp::Ret:
-				break;
+				case IROp::Ret:
+				case IROp::RetVariant:
+				case IROp::RetTypedBuiltin:
+					break;
 			default:
 				if (block_idx + 1 < cfg.blocks.size()) {
 					_ir_add_successor(cfg, block_idx, block_idx + 1);

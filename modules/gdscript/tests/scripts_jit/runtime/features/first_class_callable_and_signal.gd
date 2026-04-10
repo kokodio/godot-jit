@@ -7,6 +7,7 @@ func f():
 
 signal s()
 
+@jit
 func test():
 	print(f)
 	print(s)

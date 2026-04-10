@@ -1,3 +1,4 @@
+@jit
 func test():
 	# All combinations of 1/2/3 arguments, each being int/float.
 

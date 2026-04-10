@@ -1,3 +1,4 @@
+@jit
 func test():
 	var node := Node.new()
 	var callable: Callable = node.free

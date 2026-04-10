@@ -1,3 +1,4 @@
+@jit
 func test():
 	print(print)
 	print(len)

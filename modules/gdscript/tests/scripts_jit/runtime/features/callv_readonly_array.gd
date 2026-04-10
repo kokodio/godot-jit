@@ -4,7 +4,7 @@ const array_const: Array = ["one", "two", "three", "four"]
 var array_nested_var: Array = [["one"], ["two"], ["three"], ["four"]]
 const array_nested_const: Array = [["one"], ["two"], ["three"], ["four"]]
 
-
+@jit
 func test():
     Utils.check(array_const.is_read_only() == true)
     Utils.check(array_nested_const.is_read_only() == true)
